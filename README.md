@@ -13,7 +13,7 @@
 - 上游官网：https://jerryjiao.github.io/dsh-wewrite/
 - 版本：v0.5.3
 - License：MIT
-- 适用 DSH：v0.1.x developer preview（实测 0.1.0-rc.7，见下方[版本兼容表](#版本兼容表)）
+- 适用 DSH：v0.1.x / 0.2.1-rc.2 developer preview（实测 0.1.0-rc.7 与 0.2.1-rc.2，见下方[版本兼容表](#版本兼容表)）
 
 ## 5 分钟快速开始
 
@@ -143,7 +143,8 @@ DSH Web UI（React 18，http://127.0.0.1:3080）
   └─ wewrite 工作台 tab（conversation.view，双入口并存）
        │  选题（热榜 + 逐条 AI 速览）│ 编辑器（Markdown + AI 选中改写）│ 微信预览
        │  运行历史 │ 定时计划 │ 设置（启动卡含 brief「更多信息」折叠区）
-       │  connection.rpc（仅 loopback 回环，authority 校验）
+       │  RPC：0.1.x 走 connection.rpc.handle；0.2.x 走 /dsh-wewrite prefix 路由
+       │       （connection.admit 鉴权，仅 loopback 回环）
        ▼
 DSH Host（Node + Cordis）
   └─ dsh-wewrite 宿主插件：WeWriteService（唯一写权威，操作串行化）
@@ -220,7 +221,11 @@ DSH Host（Node + Cordis）
 
 **支持哪个 DSH 版本？装上没激活怎么办？**
 
-见[版本兼容表](#版本兼容表)。DSH v0.1 处于 developer preview 的 breaking changes 窗口，本插件做了 feature detection 防御（storage/connection 服务缺失时警告并降级，而非半死不活）。装上不激活时先确认 DSH 版本在支持列表内；安装输出若出现 "plain dependency" 字样，说明插件声明未被识别，属 DSH CLI 与本插件版本不匹配，请到 [Issues](https://github.com/yujipeng/dsh-wewrite/issues) 反馈。
+见[版本兼容表](#版本兼容表)。DSH v0.1 / v0.2 都处于 developer preview 的 breaking changes 窗口，本插件做了 feature detection 防御（storage/connection 服务缺失时警告并降级，而非半死不活）。装上不激活时先确认 DSH 版本在支持列表内；安装输出若出现 "plain dependency" 字样，说明插件声明未被识别，属 DSH CLI 与本插件版本不匹配，请到 [Issues](https://github.com/yujipeng/dsh-wewrite/issues) 反馈。
+
+**DSH 0.2.x 下写作台报 405 或「存储不可用」怎么办？**
+
+插件已适配 0.2.x：它的 `connection.rpc.handle` 用 Connection 插件根 ctx 做 owner（根 ctx 未注入 `webServer`），外部插件调用会抛 `cannot get property "webServer" without inject`，因此 host 侧自动降级为注册 `/dsh-wewrite` prefix 路由，鉴权仍由 `connection.admit` 负责（fail-closed），请求体上限 2MB。若仍看到 405 / 面板报「存储不可用」，先确认装的是本 fork 的 `#main`（含 0.2.x 适配提交）并重启 DSH；0.1.x 仍走原生 `connection.rpc.handle`。
 
 **群发功能在哪？**
 
@@ -234,11 +239,11 @@ DSH Host（Node + Cordis）
 
 | dsh-wewrite | DSH | Node | React | 状态 |
 |---|---|---|---|---|
-| v0.5.3 | 0.1.0-rc.7（developer preview） | ^22.19.0 \|\| >=24.0.0 | 18（宿主提供，peer） | 已验证（v0.5.3 基线：vitest 全量 + E2E fresh/demo 52 用例全绿） |
+| v0.5.3 | 0.1.0-rc.7 / 0.2.1-rc.2（developer preview） | ^22.19.0 \|\| >=24.0.0 | 18（宿主提供，peer） | 已验证（0.2.1-rc.2 真机：写作台入口 + 设置/选题/定时三面板 + 热门榜 30 条；0.1 基线 vitest 全量 + E2E 52 用例全绿） |
 | v0.2.0 – v0.5.2 | v0.1.x developer preview（2026-08-13 发布） | ^22.19.0 \|\| >=24.0.0 | 18（宿主提供，peer） | 已验证（2026-08-20 基线：当时代码全量测试 + E2E fresh/demo 52 用例全绿，含 v0.3 未发版改动） |
 | v0.1.0 – v0.1.4 | v0.1.x developer preview（2026-08-13 发布） | ^22.19.0 \|\| >=24.0.0 | 18（宿主提供，peer） | 已验证（2026-08 基线，DSH master@2026-08-17 实测） |
 
-DSH v0.1 是 developer preview，不承诺 API 稳定；DSH 升级后如插件失活，优先检查本表并升级插件版本。
+DSH v0.1 / v0.2 都是 developer preview，不承诺 API 稳定；0.2.x 的 RPC 注册与 client slot 差异由插件内降级路径吸收（见 [FAQ](#faq)）。DSH 升级后如插件失活，优先检查本表并升级插件版本。
 
 ## Roadmap
 
@@ -247,6 +252,7 @@ DSH v0.1 是 developer preview，不承诺 API 稳定；DSH 升级后如插件�
   - v0.4.0 对话深度结合：agent 工具面（run / rewrite / list / suggest_topics / push_draft）、推送前宿主审批 fail-closed、对话内运行卡与成稿卡、`/wewrite` 命令、`@` 文章引用
   - v0.5.0 启动 brief：变密度输入与分层绑定（标题/思路硬绑、大纲骨架绑、来源硬绑 + 机械门禁）
   - v0.5.1 弱模型参数宽容、v0.5.2 凭据信封修复、v0.5.3 npm 元数据补全（repository / homepage / bugs）
+  - v0.5.3（fork）适配 DSH 0.2.1-rc.2：RPC 降级为 webServer prefix 路由（`connection.admit` 鉴权）、client slot 改 `slots.inject`（含 turnTail id）
 - 评估中
   - freepublish 显式 opt-in（默认关，逐次确认）
   - 多公众号账号（账号切换/凭据集）
@@ -295,7 +301,7 @@ NODE_PATH=/path/to/workspace/node_modules npm run test:e2e
 
 **What.** dsh-wewrite is a plugin for DeepSeek Harness (DSH) that turns a WeChat official-account AI writing pipeline—topic, outline, draft, quality gates, render, images, draft box—into a local web workbench. Models and credentials stay yours: text generation uses your DSH model config, secrets never leave `~/.dsh`. Since v0.4 the chat is the main cockpit: agent tools drive the pipeline, run/final cards appear in the conversation, `/wewrite` and `@` references are lightweight entries, and every push is gated by the host approval panel. Since v0.5 the run accepts a launch brief—optional title/idea/outline/sources with hard binding and a source-visibility gate. Per-item AI digest for trending topics, selection-based AI rewrite, and the sidebar overlay entry are still there.
 
-**Install.** `npx @deepseek-ai/dsh plugin --profile web add github:yujipeng/dsh-wewrite#main`, then `npx @deepseek-ai/dsh web` and open http://127.0.0.1:3080 . The first git install asks pnpm to approve the build script: add `"dsh-wewrite@git+https://github.com/yujipeng/dsh-wewrite.git": true` under `allowBuilds` in `~/.dsh/profiles/web/pnpm-workspace.yaml` and re-run. Fill in your official-account AppID/AppSecret in the workbench settings, run the connection test, pick a topic, and push your first draft. Requires DSH 0.1.0-rc.7 (developer preview) and Node ^22.19.0 || >=24.0.0.
+**Install.** `npx @deepseek-ai/dsh plugin --profile web add github:yujipeng/dsh-wewrite#main`, then `npx @deepseek-ai/dsh web` and open http://127.0.0.1:3080 . The first git install asks pnpm to approve the build script: add `"dsh-wewrite@git+https://github.com/yujipeng/dsh-wewrite.git": true` under `allowBuilds` in `~/.dsh/profiles/web/pnpm-workspace.yaml` and re-run. Fill in your official-account AppID/AppSecret in the workbench settings, run the connection test, pick a topic, and push your first draft. Requires DSH 0.1.0-rc.7 or 0.2.1-rc.2 (developer preview) and Node ^22.19.0 || >=24.0.0. On 0.2.x the host registers a `/dsh-wewrite` prefix route authenticated by `connection.admit`, because DSH's `connection.rpc.handle` is not usable for external plugins.
 
 **Safety.** Pushes go to the draft box only; there is no code path for mass publishing (freepublish), by design. Each agent-initiated push first triggers the host approval panel (fail-closed: the push tool is not registered when approval is unavailable). Credentials are stored locally via the DSH credentials service and masked in logs; no telemetry is collected. MIT licensed.
 
