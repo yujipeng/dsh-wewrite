@@ -15,7 +15,7 @@ import { domainSpec } from './domain';
 import { resolveLogger, type CredentialsService, type HostContext, type LlmService } from './platform';
 import { registerAgentTools } from './agent-tools';
 import { registerWewriteCommand } from './agent-tools/commands';
-import { registerWewriteRpc } from './rpc';
+import { registerWewriteHttpRoute, registerWewriteRpc } from './rpc';
 import { WeWriteService } from './service';
 
 export const name = 'dsh-wewrite';
@@ -77,10 +77,16 @@ export async function apply(ctx: HostContext, rawConfig: unknown): Promise<void>
     });
     const disposers: Array<() => void | Promise<void>> = [];
     try {
-      const stopRpc = await registerWewriteRpc(ctx.connection?.rpc, service, logger);
-      disposers.push(() => {
-        void Promise.resolve(stopRpc).then((dispose) => dispose?.());
-      });
+      let stopRpc: (() => void) | undefined;
+      if (ctx.connection?.rpc) {
+        try {
+          stopRpc = await registerWewriteRpc(ctx.connection.rpc, service, logger);
+        } catch (error) {
+          logger.warn(`dsh-wewrite: connection.rpc.handle 不可用，改走 webServer prefix 路由：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (!stopRpc) stopRpc = registerWewriteHttpRoute(ctx, service, logger);
+      if (stopRpc) disposers.push(stopRpc);
       // AC-M1-12：注册初值与运行期闸门统一走 service.agentToolsEnabled()（单一真源，可热翻转）
       for (const stop of registerAgentTools(ctx, service, { enabled: service.agentToolsEnabled() })) {
         disposers.push(stop);

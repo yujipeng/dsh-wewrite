@@ -165,6 +165,30 @@ function toHostRpcErrorEnvelope(
   };
 }
 
+/** 单端点执行：请求校验 → dispatch → 响应形状复核；返回平台 RPC 信封。 */
+async function executeEndpoint(service: WeWriteService, endpoint: string, payload: unknown): Promise<unknown> {
+  const entry = (rpcContract as Record<string, ContractEntry | undefined>)[endpoint];
+  if (!entry) throw new Error(`未知端点：${endpoint}`);
+  const parsedRequest = entry.request.safeParse(payload ?? {});
+  if (!parsedRequest.success || parsedRequest.data === undefined) {
+    const issues = parsedRequest.error?.issues ?? [];
+    throw new Error(`请求校验失败（${endpoint}）：${issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
+  }
+  // 平台 RPC 信封契约（dsh-automation 真身）：handler 返回 {ok:true,value} /
+  // {ok:false,error:{code,message}}——裸值会在客户端 result 联合校验处炸（2026-08-19 实测）。
+  try {
+    const result = await dispatch(service, endpoint as RpcEndpoint, parsedRequest.data as RpcPayload);
+    const checked = entry.response.safeParse(result);
+    if (!checked.success || checked.data === undefined) {
+      const issues = checked.error?.issues ?? [];
+      throw new Error(`响应形状漂移（${endpoint}）：${issues[0] ? `${issues[0].path.join('.')}: ${issues[0].message}` : '未知问题'}`);
+    }
+    return { ok: true as const, value: checked.data };
+  } catch (error) {
+    return toHostRpcErrorEnvelope(error, (text) => (text.length > 500 ? `${text.slice(0, 500)}…` : text));
+  }
+}
+
 /** 注册 loopback 通道；rpc 服务缺失时降级为 no-op + 警告（架构 §9.1）。 */
 export function registerWewriteRpc(
   rpc: ConnectionRpcService | undefined,
@@ -175,34 +199,154 @@ export function registerWewriteRpc(
     logger?.warn('dsh-wewrite: connection.rpc 服务缺失，Web 面板不可用（Agent 工具仍可用）');
     return Promise.resolve(() => undefined);
   }
-  const truncate = (text: string): string => (text.length > 500 ? `${text.slice(0, 500)}…` : text);
 
   const registered = rpc.handle(
     RPC_CHANNEL,
-    async (endpoint: string, payload: unknown) => {
-      const entry = (rpcContract as Record<string, ContractEntry | undefined>)[endpoint];
-      if (!entry) throw new Error(`未知端点：${endpoint}`);
-      const parsedRequest = entry.request.safeParse(payload ?? {});
-      if (!parsedRequest.success || parsedRequest.data === undefined) {
-        const issues = parsedRequest.error?.issues ?? [];
-        throw new Error(`请求校验失败（${endpoint}）：${issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
-      }
-      // 平台 RPC 信封契约（dsh-automation 真身）：handler 返回 {ok:true,value} /
-      // {ok:false,error:{code,message}}——裸值会在客户端 result 联合校验处炸（2026-08-19 实测）。
-      try {
-        const result = await dispatch(service, endpoint as RpcEndpoint, parsedRequest.data as RpcPayload);
-        const checked = entry.response.safeParse(result);
-        if (!checked.success || checked.data === undefined) {
-          const issues = checked.error?.issues ?? [];
-          throw new Error(`响应形状漂移（${endpoint}）：${issues[0] ? `${issues[0].path.join('.')}: ${issues[0].message}` : '未知问题'}`);
-        }
-        return { ok: true as const, value: checked.data };
-      } catch (error) {
-        return toHostRpcErrorEnvelope(error, truncate);
-      }
-    },
+    (endpoint: string, payload: unknown) => executeEndpoint(service, endpoint, payload),
     { authority: RPC_AUTHORITY },
   );
   if (typeof registered === 'function') return Promise.resolve(registered);
   return registered.then((dispose) => dispose ?? (() => undefined));
+}
+
+// ── DSH 0.2.x 降级路径 ────────────────────────────────────────────────────────
+// 0.2.x 的 connection.rpc.handle 用 Connection 插件根 ctx 做 owner，而根 ctx 未
+// inject webServer，外部插件调用必然抛 "cannot get property webServer without
+// inject"。这里直接注册 webServer prefix route，复用同一条 Connection 信封协议
+// （client 端 connection.rpc.call 不变），并用 connection.admit 做鉴权（fail-closed）。
+
+interface HttpRequestLike {
+  readonly method?: string;
+  readonly url?: string;
+  readonly headers: Record<string, string | string[] | undefined>;
+  [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array>;
+}
+
+interface HttpResponseLike {
+  readonly headersSent?: boolean;
+  writeHead(status: number, headers?: Record<string, string>): void;
+  end(body?: string): void;
+}
+
+interface WebServerLike {
+  register(route: {
+    kind: 'prefix';
+    path: string;
+    handler: (req: HttpRequestLike, res: HttpResponseLike) => Promise<void>;
+  }): () => void;
+}
+
+interface ConnectionLike {
+  readonly rpc?: ConnectionRpcService;
+  admit?(req: HttpRequestLike): { readonly rejection: number } | { readonly peer: unknown };
+}
+
+const MAX_RPC_BODY_BYTES = 2 * 1024 * 1024;
+
+async function readRequestBody(req: HttpRequestLike): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_RPC_BODY_BYTES) throw new Error('request body too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8');
+}
+
+function writeJson(res: HttpResponseLike, status: number, payload: unknown): void {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) });
+  res.end(body);
+}
+
+/** 0.2.x 降级：把 /dsh-wewrite/* 注册为 webServer prefix 路由（鉴权走 connection.admit）。 */
+export function registerWewriteHttpRoute(
+  ctx: { readonly webServer?: WebServerLike; readonly connection?: ConnectionLike },
+  service: WeWriteService,
+  logger?: HostLogger,
+): (() => void) | undefined {
+  const webServer = ctx.webServer;
+  if (!webServer?.register) {
+    logger?.warn('dsh-wewrite: webServer 服务缺失，Web 面板不可用（Agent 工具仍可用）');
+    return undefined;
+  }
+  const connection = ctx.connection;
+  if (!connection?.admit) {
+    logger?.warn('dsh-wewrite: connection.admit 缺失，拒绝注册 HTTP RPC 路由（fail-closed）');
+    return undefined;
+  }
+  const truncate = (text: string): string => (text.length > 500 ? `${text.slice(0, 500)}…` : text);
+
+  return webServer.register({
+    kind: 'prefix',
+    path: RPC_CHANNEL,
+    handler: async (req, res) => {
+      const admission = connection.admit?.(req);
+      if (!admission || 'rejection' in admission) {
+        const status = admission && 'rejection' in admission ? admission.rejection : 401;
+        res.writeHead(status, { 'content-type': 'text/plain' });
+        res.end(status === 401 ? 'unauthorized' : 'forbidden');
+        return;
+      }
+      try {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'content-type': 'text/plain' });
+          res.end('method not allowed');
+          return;
+        }
+        const contentType = String(req.headers['content-type'] ?? '').split(';', 1)[0]?.trim().toLowerCase();
+        if (contentType !== 'application/json') {
+          res.writeHead(415, { 'content-type': 'text/plain' });
+          res.end('content type must be application/json');
+          return;
+        }
+        const body = await readRequestBody(req);
+        let envelope: unknown;
+        try {
+          envelope = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'content-type': 'text/plain' });
+          res.end('body is not JSON');
+          return;
+        }
+        const message = envelope as { readonly type?: unknown; readonly rpcId?: unknown; readonly method?: unknown; readonly payload?: unknown };
+        if (message.type !== 'client-request' || typeof message.rpcId !== 'string' || typeof message.method !== 'string') {
+          res.writeHead(400, { 'content-type': 'text/plain' });
+          res.end('invalid envelope');
+          return;
+        }
+        const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+        const endpoint = pathname.startsWith(`${RPC_CHANNEL}/`) ? pathname.slice(RPC_CHANNEL.length + 1) : '';
+        if (endpoint !== message.method) {
+          writeJson(res, 200, {
+            type: 'server-response',
+            rpcId: message.rpcId,
+            result: {
+              ok: false,
+              error: {
+                code: 'bad-request',
+                message: `method ${JSON.stringify(message.method)} does not match endpoint ${JSON.stringify(endpoint)}`,
+                details: {},
+              },
+            },
+          });
+          return;
+        }
+        let result: unknown;
+        try {
+          result = await executeEndpoint(service, endpoint, message.payload);
+        } catch (error) {
+          result = toHostRpcErrorEnvelope(error, truncate);
+        }
+        writeJson(res, 200, { type: 'server-response', rpcId: message.rpcId, result });
+      } catch (error) {
+        logger?.warn(`dsh-wewrite: HTTP RPC 处理失败：${error instanceof Error ? error.message : String(error)}`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'content-type': 'text/plain' });
+          res.end('handler failure');
+        }
+      }
+    },
+  });
 }
