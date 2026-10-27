@@ -20,7 +20,7 @@ import { WeWriteService } from './service';
 
 export const name = 'dsh-wewrite';
 
-export const inject = ['storageDomain', 'agents', 'sessions', 'connection', 'llm', 'credentials', 'tools', 'commands'];
+export const inject = ['storageDomain', 'webServer', 'agents', 'sessions', 'connection', 'llm', 'credentials', 'tools', 'commands'];
 
 export const Config = z.object({
   agentToolsEnabled: z.boolean().default(false),
