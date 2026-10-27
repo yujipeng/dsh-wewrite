@@ -2,4 +2,4 @@
 export const REPO_URL = 'https://github.com/yujipeng/dsh-wewrite';
 export const VERSION = 'v0.5.3';
 export const INSTALL_CMD =
-  'npx @deepseek-ai/dsh plugin --profile web add dsh-wewrite@0.5.3';
+  'npx @deepseek-ai/dsh plugin --profile web add github:yujipeng/dsh-wewrite#main';

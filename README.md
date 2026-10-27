@@ -22,12 +22,19 @@
 **第 1 步：安装插件**
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add dsh-wewrite@0.5.3
+npx @deepseek-ai/dsh plugin --profile web add github:yujipeng/dsh-wewrite#main
 ```
 
 安装完成后如需卸载：`npx @deepseek-ai/dsh plugin --profile web remove dsh-wewrite`。
 
-> 关于产物形态：`lib/` 不再提交进仓库。npm 发布时由 `prepublishOnly` 构建；从 git 安装时由 `prepare` 构建，但 pnpm 默认阻止构建脚本，需按安装提示在 profile 的 `pnpm-workspace.yaml` 里用 `allowBuilds` 放行 `dsh-wewrite`。安装 npm 包则直接使用上游发布的预构建产物，无需 `allowBuilds`。若要运行本 fork 的源码改动，先 `npm install && npm run build`，再以本地路径安装（`link:` / `file:`）。
+> 关于产物形态：`lib/` 不再提交进仓库，从 GitHub 安装时由 `prepare` 构建。pnpm 默认阻止构建脚本，首次安装会提示放行；在 `~/.dsh/profiles/web/pnpm-workspace.yaml` 加入以下条目后重跑即可（仓库形式跨 commit 有效，不必随 main 更新改 hash）：
+>
+> ```yaml
+> allowBuilds:
+>   "dsh-wewrite@git+https://github.com/yujipeng/dsh-wewrite.git": true
+> ```
+>
+> 若不想本地构建，也可以 `add dsh-wewrite@0.5.3` 安装上游在 npm 发布的预构建版本（不含本 fork 的改动）。本地开发请先 `npm install && npm run build`，再用 `link:` / `file:` 安装。
 
 **第 2 步：启动 DSH Web**
 
@@ -282,13 +289,13 @@ NODE_PATH=/path/to/workspace/node_modules npm run test:e2e
 | [`website.yml`](.github/workflows/website.yml) | push main（`website/**` / logo 变更）+ 手动 | 构建官网并自动部署到 GitHub Pages：https://yujipeng.github.io/dsh-wewrite/ |
 | [`release.yml`](.github/workflows/release.yml) | push tag `v*` | 复用同一套插件门禁 → build → 打包 `lib/` + `cordis.patch.yml` + README/LICENSE 为 zip → 创建 GitHub Release（自动生成 notes）并附产物 |
 
-发版流程（workflow 不改版本号，bump 属本地动作）：改 `package.json` version → 同步 README 安装命令与官网的版本 pin → commit → `git tag vX.Y.Z` → `git push origin main --tags` → `npm publish`（`prepublishOnly` 自动构建 `lib/`）。`release.yml` 接管 tag 侧门禁与 GitHub Release 产物。
+发版流程（workflow 不改版本号，bump 属本地动作）：改 `package.json` version → 同步 README 安装命令（分支 / tag）与官网的版本 pin → commit → `git tag vX.Y.Z` → `git push origin main --tags` → `npm publish`（`prepublishOnly` 自动构建 `lib/`）。`release.yml` 接管 tag 侧门禁与 GitHub Release 产物。
 
 ## English
 
 **What.** dsh-wewrite is a plugin for DeepSeek Harness (DSH) that turns a WeChat official-account AI writing pipeline—topic, outline, draft, quality gates, render, images, draft box—into a local web workbench. Models and credentials stay yours: text generation uses your DSH model config, secrets never leave `~/.dsh`. Since v0.4 the chat is the main cockpit: agent tools drive the pipeline, run/final cards appear in the conversation, `/wewrite` and `@` references are lightweight entries, and every push is gated by the host approval panel. Since v0.5 the run accepts a launch brief—optional title/idea/outline/sources with hard binding and a source-visibility gate. Per-item AI digest for trending topics, selection-based AI rewrite, and the sidebar overlay entry are still there.
 
-**Install.** `npx @deepseek-ai/dsh plugin --profile web add dsh-wewrite@0.5.3`, then `npx @deepseek-ai/dsh web` and open http://127.0.0.1:3080 . Fill in your official-account AppID/AppSecret in the workbench settings, run the connection test, pick a topic, and push your first draft. Requires DSH 0.1.0-rc.7 (developer preview) and Node ^22.19.0 || >=24.0.0.
+**Install.** `npx @deepseek-ai/dsh plugin --profile web add github:yujipeng/dsh-wewrite#main`, then `npx @deepseek-ai/dsh web` and open http://127.0.0.1:3080 . The first git install asks pnpm to approve the build script: add `"dsh-wewrite@git+https://github.com/yujipeng/dsh-wewrite.git": true` under `allowBuilds` in `~/.dsh/profiles/web/pnpm-workspace.yaml` and re-run. Fill in your official-account AppID/AppSecret in the workbench settings, run the connection test, pick a topic, and push your first draft. Requires DSH 0.1.0-rc.7 (developer preview) and Node ^22.19.0 || >=24.0.0.
 
 **Safety.** Pushes go to the draft box only; there is no code path for mass publishing (freepublish), by design. Each agent-initiated push first triggers the host approval panel (fail-closed: the push tool is not registered when approval is unavailable). Credentials are stored locally via the DSH credentials service and masked in logs; no telemetry is collected. MIT licensed.
 
