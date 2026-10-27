@@ -55,6 +55,7 @@
     "typecheck": "tsc --noEmit",
     "check:p0": "node scripts/checks/scan-p0.mjs",
     "build": "node scripts/build.mjs && tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "test:e2e": "node tests/e2e/runner.mjs",
     "test:e2e:live": "node tests/e2e/runner.mjs --phase=live",
     "host:status": "node scripts/hostctl.mjs status",

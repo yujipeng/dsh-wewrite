@@ -27,7 +27,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-wewrite@0.5.3
 
 安装完成后如需卸载：`npx @deepseek-ai/dsh plugin --profile web remove dsh-wewrite`。
 
-> 关于产物形态：`lib/` 不再提交进仓库，npm 发布时由 `prepublishOnly` 自动构建。安装 npm 包即使用上游发布的预构建产物，无需在 pnpm 侧添加 `allowBuilds`；DSH 从 git 直接安装不会执行构建脚本。若要运行本 fork 的源码改动，请先 `npm install && npm run build`，再自行发布到 npm 或以本地路径安装。
+> 关于产物形态：`lib/` 不再提交进仓库。npm 发布时由 `prepublishOnly` 构建；从 git 安装时由 `prepare` 构建，但 pnpm 默认阻止构建脚本，需按安装提示在 profile 的 `pnpm-workspace.yaml` 里用 `allowBuilds` 放行 `dsh-wewrite`。安装 npm 包则直接使用上游发布的预构建产物，无需 `allowBuilds`。若要运行本 fork 的源码改动，先 `npm install && npm run build`，再以本地路径安装（`link:` / `file:`）。
 
 **第 2 步：启动 DSH Web**
 
@@ -248,7 +248,7 @@ DSH v0.1 是 developer preview，不承诺 API 稳定；DSH 升级后如插件�
 ## 开发
 
 ```bash
-npm install          # 独立克隆直接装（无 install 钩子）
+npm install          # 装依赖（prepare 会一并构建 lib/）
 npm test             # vitest 全量测试
 npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
