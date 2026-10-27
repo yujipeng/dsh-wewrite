@@ -77,7 +77,7 @@ export async function apply(ctx: HostContext, rawConfig: unknown): Promise<void>
     });
     const disposers: Array<() => void | Promise<void>> = [];
     try {
-      const stopRpc = registerWewriteRpc(ctx.connection?.rpc, service, logger);
+      const stopRpc = await registerWewriteRpc(ctx.connection?.rpc, service, logger);
       disposers.push(() => {
         void Promise.resolve(stopRpc).then((dispose) => dispose?.());
       });
@@ -89,6 +89,7 @@ export async function apply(ctx: HostContext, rawConfig: unknown): Promise<void>
       if (stopCommand) disposers.push(stopCommand);
       service.startScheduler();
     } catch (error) {
+      console.error('dsh-wewrite: 贡献装配失败', error);
       logger.warn(`dsh-wewrite: 贡献装配部分降级：${error instanceof Error ? error.message : String(error)}`);
     }
     return async () => {
