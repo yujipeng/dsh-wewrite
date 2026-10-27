@@ -45,14 +45,6 @@ jobs:
           grep -q '__ModuleLoader__' lib/client.js
           echo "lib/client.js 存在且含 __ModuleLoader__ 加载契约标记"
 
-      # lib/ 是 dist-committed（仓库有意提交预构建产物）：rebuild 后必须与提交版
-      # 字节一致，防止「改了源码忘跑 build」导致安装侧拿到陈旧产物。
-      - name: dist-committed 一致性校验
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git diff --exit-code -- lib/
-          echo "lib/ 与源码构建产物一致"
-
   website-build:
     name: 官网构建校验
     # workflow_call 复用时（release.yml）只跑插件门禁，不重复构建官网

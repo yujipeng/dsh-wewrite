@@ -1,5 +1,5 @@
 # 官网自动发布：构建 Astro 站点并部署到 GitHub Pages。
-# 站点地址：https://jerryjiao.github.io/dsh-wewrite/（astro.config base='/dsh-wewrite/'）
+# 站点地址：https://yujipeng.github.io/dsh-wewrite/（astro.config base='/dsh-wewrite/'）
 name: Website
 
 on:
