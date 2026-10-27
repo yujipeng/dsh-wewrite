@@ -22,4 +22,5 @@ tests/e2e/artifacts/
 .mimosa/
 
 # 构建产物：发布时由 prepublishOnly 自动构建（2026-08-28 起 dist 不再 committed）
-lib/
+# 只忽略仓库根 lib/，避免误伤 src/client/lib 等源码目录
+/lib/

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { ClientContext, CommandRowOwnerPropsLike, InputTriggersServiceLike, InputZonePropsLike } from '../lib/context';
+import { registerSlot, type ClientContext, type CommandRowOwnerPropsLike, type InputTriggersServiceLike, type InputZonePropsLike } from '../lib/context';
 import type { WewriteRpc } from '../lib/rpc';
 import { WewriteComposerButton } from './wewrite-button';
 import { WewriteCommandRow } from './commandview-wewrite';
@@ -28,9 +28,11 @@ export function registerComposer(ctx: ClientContext, rpc: WewriteRpc): void {
   };
 
   safeRegister('slots.register（conversation.input.right）', () =>
-    ctx.slots.register(
-      { name: 'conversation.input.right', id: 'wewrite', order: 100 },
-      WewriteComposerButton as ComponentType<InputZonePropsLike>,
+    registerSlot(ctx, 'conversation.input.right', () =>
+      ctx.slots.register(
+        { name: 'conversation.input.right', id: 'wewrite', order: 100 },
+        WewriteComposerButton as ComponentType<InputZonePropsLike>,
+      ),
     ),
   );
 
@@ -38,7 +40,9 @@ export function registerComposer(ctx: ClientContext, rpc: WewriteRpc): void {
     return <WewriteCommandRow node={props.node} rpc={rpc} />;
   };
   safeRegister('slots.register（conversation.chat.commandview wewrite）', () =>
-    ctx.slots.register({ name: 'conversation.chat.commandview', key: 'wewrite' }, CommandRowAdapter),
+    registerSlot(ctx, 'conversation.chat.commandview', () =>
+      ctx.slots.register({ name: 'conversation.chat.commandview', key: 'wewrite' }, CommandRowAdapter),
+    ),
   );
 
   // D10：inputTriggers 经 ctx.inject 动态子 fiber 探测（P0-1 修复方案 b，理由见

@@ -52,6 +52,11 @@ export interface ClientContext {
     bind(namespace: string): Translate;
   };
   slots: {
+    /**
+     * DSH 0.2.x：slot 必须先由父条目声明，注册方用 inject(name, () => register(...)) 挂载。
+     * 0.1.x 无此 API，registerSlot 回退为直接 register。
+     */
+    inject?(name: string, register: () => () => void): () => void;
     /** conversation.view：会话内工作台 tab（主入口）。 */
     register(
       options: {
@@ -148,6 +153,18 @@ export interface ClientContext {
    * 主插件照常激活。可选面：宿主无此 API 时调用方 try/catch 降级。
    */
   inject?(deps: readonly string[], callback: (ctx: ClientContext) => void): unknown;
+}
+
+/**
+ * 跨 DSH 版本的 slot 注册：0.2.x 必须先 inject 目标 slot（父条目 children 表声明），
+ * 0.1.x 没有 inject，直接 register。两者都返回 disposer。
+ */
+export function registerSlot(
+  ctx: ClientContext,
+  name: string,
+  register: () => () => void,
+): () => void {
+  return typeof ctx.slots.inject === 'function' ? ctx.slots.inject(name, register) : register();
 }
 
 // ── chat-integration 结构类型（M2/M3；对齐宿主 rc.7 实面的最小子集） ───────────
