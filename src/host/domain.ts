@@ -30,6 +30,7 @@ export const SettingsRecordSchema = z.strictObject({
   ]),
   agentToolsEnabled: z.boolean().default(false),
   runHistoryLimit: z.number().int().min(1).max(1000).default(200),
+  hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).default(['weibo', 'toutiao', 'baidu']),
   hotspotAggregatorUrl: z.string().default(''),
 });
 export type SettingsRecord = z.infer<typeof SettingsRecordSchema>;

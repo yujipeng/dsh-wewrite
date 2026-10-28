@@ -94,6 +94,10 @@ export function hotspotSourceLabel(source: string): string {
       return 'HN';
     case 'weibo':
       return '微博';
+    case 'toutiao':
+      return '头条';
+    case 'baidu':
+      return '百度';
     case 'zhihu':
       return '知乎';
     case 'dailyhot':

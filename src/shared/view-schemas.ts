@@ -131,6 +131,7 @@ export const ConfigSettingsViewSchema = z.strictObject({
   llmDefault: LlmOverrideSchema,
   agentToolsEnabled: z.boolean(),
   runHistoryLimit: z.number().int().min(1).max(1000),
+  hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),
 });
 export type ConfigSettingsView = z.infer<typeof ConfigSettingsViewSchema>;

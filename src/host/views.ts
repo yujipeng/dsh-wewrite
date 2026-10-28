@@ -94,6 +94,7 @@ export function buildConfigView(
       llmDefault: settings.llmDefault ?? {},
       agentToolsEnabled: settings.agentToolsEnabled,
       runHistoryLimit: settings.runHistoryLimit,
+      hotspotSources: settings.hotspotSources,
       hotspotAggregatorUrl: settings.hotspotAggregatorUrl,
     },
     credentials: descriptors,

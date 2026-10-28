@@ -116,10 +116,109 @@ export function createAggregatorSource(baseUrl: string, fetchImpl: typeof fetch 
   };
 }
 
-/** 按当前设置装配热榜源列表：HN 恒在；聚合源仅在 URL 配置时加入。 */
-export function buildHotspotSources(options: { aggregatorUrl?: string; fetchImpl?: typeof fetch }): HotspotSource[] {
+// ── 国内热榜源（移植自 wewrite fetch_hotspots：微博 / 头条 / 百度）────────────
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
+};
+
+interface WeiboEntry {
+  readonly note?: string;
+  readonly word?: string;
+}
+
+/** 微博热搜：weibo.com/ajax/side/hotSearch（需 Referer）。 */
+export function createWeiboSource(fetchImpl: typeof fetch = fetch): HotspotSource {
+  return {
+    id: 'weibo',
+    async fetch(): Promise<HotspotItem[]> {
+      const response = await fetchImpl('https://weibo.com/ajax/side/hotSearch', {
+        headers: { ...BROWSER_HEADERS, Referer: 'https://weibo.com/' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`微博热搜返回 HTTP ${response.status}`);
+      const data = (await response.json()) as { data?: { realtime?: WeiboEntry[] } };
+      return (data.data?.realtime ?? []).flatMap((entry, index): HotspotItem[] => {
+        const title = entry.note ?? entry.word;
+        if (!title) return [];
+        return [{ title, source: 'weibo', rank: index + 1, url: `https://s.weibo.com/weibo?q=%23${encodeURIComponent(title)}%23` }];
+      });
+    },
+  };
+}
+
+interface ToutiaoEntry {
+  readonly Title?: string;
+  readonly Url?: string;
+}
+
+/** 今日头条热榜：toutiao.com/hot-event/hot-board。 */
+export function createToutiaoSource(fetchImpl: typeof fetch = fetch): HotspotSource {
+  return {
+    id: 'toutiao',
+    async fetch(): Promise<HotspotItem[]> {
+      const response = await fetchImpl('https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc', {
+        headers: BROWSER_HEADERS,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`头条热榜返回 HTTP ${response.status}`);
+      const data = (await response.json()) as { data?: ToutiaoEntry[] };
+      return (data.data ?? []).flatMap((entry, index): HotspotItem[] => {
+        if (!entry.Title) return [];
+        return [{ title: entry.Title, source: 'toutiao', rank: index + 1, url: entry.Url ?? '' }];
+      });
+    },
+  };
+}
+
+interface BaiduEntry {
+  readonly word?: string;
+  readonly url?: string;
+}
+
+interface BaiduCard {
+  readonly content?: { readonly content?: BaiduEntry[] }[];
+}
+
+/** 百度热搜：top.baidu.com/api/board（条目嵌在 cards[0].content[0].content）。 */
+export function createBaiduSource(fetchImpl: typeof fetch = fetch): HotspotSource {
+  return {
+    id: 'baidu',
+    async fetch(): Promise<HotspotItem[]> {
+      const response = await fetchImpl('https://top.baidu.com/api/board?platform=wise&tab=realtime', {
+        headers: BROWSER_HEADERS,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`百度热搜返回 HTTP ${response.status}`);
+      const data = (await response.json()) as { data?: { cards?: BaiduCard[] } };
+      const entries = (data.data?.cards ?? []).flatMap((card) => card.content?.[0]?.content ?? []);
+      return entries.flatMap((entry, index): HotspotItem[] => {
+        if (!entry.word) return [];
+        return [{ title: entry.word, source: 'baidu', rank: index + 1, url: entry.url ?? '' }];
+      });
+    },
+  };
+}
+
+/** 按当前设置装配热榜源列表：默认国内三源；HN 需显式启用；聚合源仅在 URL 配置时加入。 */
+export type HotspotSourceId = 'weibo' | 'toutiao' | 'baidu' | 'hackernews';
+
+export function buildHotspotSources(options: {
+  aggregatorUrl?: string;
+  sources?: readonly HotspotSourceId[];
+  fetchImpl?: typeof fetch;
+}): HotspotSource[] {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const sources: HotspotSource[] = [createHackerNewsSource(fetchImpl)];
+  const enabled = options.sources ?? ['weibo', 'toutiao', 'baidu'];
+  const registry: Record<HotspotSourceId, HotspotSource> = {
+    weibo: createWeiboSource(fetchImpl),
+    toutiao: createToutiaoSource(fetchImpl),
+    baidu: createBaiduSource(fetchImpl),
+    hackernews: createHackerNewsSource(fetchImpl),
+  };
+  const sources: HotspotSource[] = enabled.map((id) => registry[id]).filter((source): source is HotspotSource => Boolean(source));
+  if (sources.length === 0) sources.push(createHackerNewsSource(fetchImpl));
   const aggregatorUrl = options.aggregatorUrl?.trim();
   if (aggregatorUrl) sources.push(createAggregatorSource(aggregatorUrl, fetchImpl));
   return sources;

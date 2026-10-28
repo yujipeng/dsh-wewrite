@@ -156,7 +156,11 @@ export class WeWriteService {
   }
 
   async fetchHotspots(limit = 20): Promise<HotspotItem[]> {
-    const sources = buildHotspotSources({ aggregatorUrl: this.settings.hotspotAggregatorUrl, fetchImpl: this.deps.fetchImpl });
+    const sources = buildHotspotSources({
+      aggregatorUrl: this.settings.hotspotAggregatorUrl,
+      sources: this.settings.hotspotSources,
+      fetchImpl: this.deps.fetchImpl,
+    });
     const { items, failures } = await aggregateHotspots(sources, limit);
     for (const failure of failures) {
       this.logger.warn(truncateMessage(`热榜源 ${failure.sourceId} 拉取失败：${failure.message}`));

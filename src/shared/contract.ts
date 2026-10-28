@@ -89,6 +89,7 @@ const ConfigSetRequestSchema = z.strictObject({
   llmDefault: LlmOverrideSchema.optional(),
   agentToolsEnabled: z.boolean().optional(),
   runHistoryLimit: z.number().int().min(1).max(1000).optional(),
+  hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),
   imageProviders: z.array(ImageProviderConfigSchema).optional(),
 });
