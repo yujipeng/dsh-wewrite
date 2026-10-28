@@ -320,34 +320,28 @@ describe('工具定义形状（Spec §5 工具面 5 个 / AC-M1-01 描述边界�
   });
 
   it('AC-M1-03: run 参数面 = topic(必填)/image_count/theme + v0.5 brief 四字段（title/approach/outline/sources 全可选），键集精确', () => {
-    const parameters = byName('wewrite_run').parameters as Record<string, { required?: boolean; type?: string }>;
-    expect(Object.keys(parameters).sort()).toEqual(['approach', 'image_count', 'outline', 'sources', 'theme', 'title', 'topic']);
-    expect(parameters.topic?.required).toBe(true);
-    expect(parameters.image_count?.required).toBeFalsy();
-    expect(parameters.theme?.required).toBeFalsy();
-    expect(parameters.title?.required).toBeFalsy();
-    expect(parameters.approach?.required).toBeFalsy();
-    expect(parameters.outline?.required).toBeFalsy();
-    expect(parameters.sources?.required).toBeFalsy();
+    const parameters = byName('wewrite_run').parameters as { type?: string; properties?: Record<string, unknown>; required?: string[] };
+    expect(parameters.type).toBe('object');
+    expect(Object.keys(parameters.properties ?? {}).sort()).toEqual(['approach', 'image_count', 'outline', 'sources', 'theme', 'title', 'topic']);
+    expect(parameters.required).toEqual(['topic']);
   });
 
   it('Spec §5: rewrite 参数 text/instruction 必填 + title 可选；push 仅 article_id 必填；list 仅 limit 可选；suggest 仅 count 可选', () => {
-    const rewrite = byName('wewrite_rewrite').parameters as Record<string, { required?: boolean }>;
-    expect(Object.keys(rewrite).sort()).toEqual(['instruction', 'text', 'title']);
-    expect(rewrite.text?.required).toBe(true);
-    expect(rewrite.instruction?.required).toBe(true);
+    const rewrite = byName('wewrite_rewrite').parameters as { properties?: Record<string, unknown>; required?: string[] };
+    expect(Object.keys(rewrite.properties ?? {}).sort()).toEqual(['instruction', 'text', 'title']);
+    expect([...(rewrite.required ?? [])].sort()).toEqual(['instruction', 'text']);
 
-    const push = byName('wewrite_push_draft').parameters as Record<string, { required?: boolean }>;
-    expect(Object.keys(push)).toEqual(['article_id']);
-    expect(push.article_id?.required).toBe(true);
+    const push = byName('wewrite_push_draft').parameters as { properties?: Record<string, unknown>; required?: string[] };
+    expect(Object.keys(push.properties ?? {})).toEqual(['article_id']);
+    expect(push.required).toEqual(['article_id']);
 
-    const list = byName('wewrite_list_articles').parameters as Record<string, { required?: boolean }>;
-    expect(Object.keys(list)).toEqual(['limit']);
-    expect(list.limit?.required).toBeFalsy();
+    const list = byName('wewrite_list_articles').parameters as { properties?: Record<string, unknown>; required?: string[] };
+    expect(Object.keys(list.properties ?? {})).toEqual(['limit']);
+    expect(list.required).toBeUndefined();
 
-    const suggest = byName('wewrite_suggest_topics').parameters as Record<string, { required?: boolean }>;
-    expect(Object.keys(suggest)).toEqual(['count']);
-    expect(suggest.count?.required).toBeFalsy();
+    const suggest = byName('wewrite_suggest_topics').parameters as { properties?: Record<string, unknown>; required?: string[] };
+    expect(Object.keys(suggest.properties ?? {})).toEqual(['count']);
+    expect(suggest.required).toBeUndefined();
   });
 
   it('勘误 2/architecture §4.1: 每个定义都带 output（object-root schema + 纯函数 render）', () => {

@@ -13,6 +13,7 @@ import { buildPushTool, buildRewriteTool } from './edit-tools';
 import { buildListTool } from './list-tool';
 import { buildRunTool } from './run-tool';
 import { buildSuggestTopicsTool } from './suggest-topics';
+import { jsonSchema } from './output-helpers';
 
 export interface ToolRegistrationOptions {
   readonly enabled: boolean;
@@ -26,6 +27,23 @@ function warn(message: string): void {
 function readGate(service: WeWriteService, options: ToolRegistrationOptions): boolean {
   const dynamic = (service as { agentToolsEnabled?: () => boolean }).agentToolsEnabled?.();
   return typeof dynamic === 'boolean' ? dynamic : options.enabled;
+}
+
+/**
+ * 把扁平 parameters 属性表编译成 object-root JSON Schema。
+ * DSH 0.2.x 的 tools.register 不再做这层转换（只有 defineTool 会），直接暴露扁平表会让
+ * 严格 provider 收到 type:null 并拒成 400；0.1/0.2 的模型面都接受标准 JSON Schema。
+ */
+function withWireParameters(definition: WewriteToolDefinition): WewriteToolDefinition {
+  const properties: Record<string, Record<string, unknown>> = {};
+  const required: string[] = [];
+  for (const [key, raw] of Object.entries(definition.parameters)) {
+    if (raw === null || typeof raw !== 'object') continue;
+    const { required: isRequired, ...rest } = raw as Record<string, unknown>;
+    properties[key] = rest;
+    if (isRequired === true) required.push(key);
+  }
+  return { ...definition, parameters: jsonSchema(properties, required) };
 }
 
 /** 向根 Agent 作用域安装工具；返回 disposer 列表（入口 apply 统一回收）。 */
@@ -55,8 +73,8 @@ export function registerAgentTools(ctx: HostContext, service: WeWriteService, op
     buildRewriteTool(service),
     buildListTool(service),
     buildSuggestTopicsTool(service),
-  ];
-  if (pushApproval) definitions.push(buildPushTool(service, pushApproval));
+  ].map(withWireParameters);
+  if (pushApproval) definitions.push(withWireParameters(buildPushTool(service, pushApproval)));
 
   const mount = (agent: AgentScope): void => {
     if (!readGate(service, options)) return; // AC-M1-12：新建 agent 按当前闸门值
