@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Menu } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, Input, Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { ImageProviderConfig } from '@/shared/contract';
 import { CREDENTIAL_REFS, DEFAULT_PROVIDER_MODELS, IMAGE_PROVIDER_IDS } from '@/shared/image-provider-ids';
@@ -93,6 +93,11 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
   const [chain, setChain] = useState<ImageProviderConfig[]>(config.imageProviders);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [addOpen, setAddOpen] = useState(false);
+  const [editingId, setEditingId] = useState<ImageProviderId | null>(null);
+  const [draftKey, setDraftKey] = useState('');
+  const [draftModel, setDraftModel] = useState('');
+  const [draftBaseUrl, setDraftBaseUrl] = useState('');
+  const [providerSaveState, setProviderSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   const remaining = useMemo(
     () => IMAGE_PROVIDER_IDS.filter((id) => !chain.some((item) => item.providerId === id)),
@@ -119,17 +124,57 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
     void save(next);
   }
 
+  /** 展开/收起单家供应商的配置行；每次打开重置草稿（API Key 不回显）。 */
+  function openEditor(item: ImageProviderConfig) {
+    const providerId = item.providerId as ImageProviderId;
+    setEditingId((current) => (current === providerId ? null : providerId));
+    setDraftKey('');
+    setDraftModel(item.model ?? DEFAULT_PROVIDER_MODELS[providerId] ?? '');
+    setDraftBaseUrl(item.baseUrl ?? '');
+    setProviderSaveState('idle');
+  }
+
+  /** 保存单家：API Key 走 credentials/set（空值不覆盖），model/baseUrl 走 config/set。 */
+  async function saveProvider(item: ImageProviderConfig) {
+    setProviderSaveState('saving');
+    try {
+      const key = draftKey.trim();
+      if (key) await rpc.call('credentials/set', { ref: item.credentialRef, value: key });
+      const model = draftModel.trim();
+      const baseUrl = draftBaseUrl.trim();
+      const next = chain.map((entry) => {
+        if (entry.providerId !== item.providerId) return entry;
+        return {
+          providerId: entry.providerId,
+          credentialRef: entry.credentialRef,
+          ...(model ? { model } : {}),
+          ...(baseUrl ? { baseUrl } : {}),
+        };
+      });
+      await rpc.call('config/set', { imageProviders: next });
+      setChain(next);
+      setDraftKey('');
+      setProviderSaveState('saved');
+      await onSaved();
+    } catch {
+      setProviderSaveState('error');
+    }
+  }
+
   return (
     <div className="ww-settings__section">
       <h3 className="ww-settings__h">图片供应商 fallback 链（gpt-image-2 第一优先）</h3>
       <ol className="ww-provider-chain">
         {chain.map((item, index) => (
-          <li key={item.providerId} className="ww-provider">
+          <li key={item.providerId} className={editingId === item.providerId ? 'ww-provider ww-provider--editing' : 'ww-provider'}>
             <span className="ww-provider__order">{index + 1}</span>
             <CodeChip>{item.providerId}</CodeChip>
             <span className="ww-provider__model">{item.model ?? DEFAULT_PROVIDER_MODELS[item.providerId as ImageProviderId] ?? '默认模型'}</span>
             <ConfiguredBadge descriptor={config.credentials[item.credentialRef]} />
             <span className="ww-provider__ops">
+              <button type="button" className="ww-icon-btn" aria-label={`配置 ${item.providerId}`} aria-expanded={editingId === item.providerId} onClick={() => openEditor(item)}>
+                <Icon name="key-round" size={16} />
+              </button>
               <button type="button" className="ww-icon-btn" aria-label={`上移 ${item.providerId}`} onClick={() => move(index, -1)} disabled={index === 0}>
                 <Icon name="chevron-down" size={16} className="ww-rotate-180" />
               </button>
@@ -140,6 +185,46 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
                 <Icon name="x" size={16} />
               </button>
             </span>
+            {editingId === item.providerId ? (
+              <div className="ww-provider__editor">
+                <div className="ww-field-row">
+                  <div className="ww-field">
+                    <span className="ww-field__label">API Key <span className="ww-field__hint">仅存本机（credentials 存储，不回显）</span></span>
+                    <Input
+                      type="password"
+                      value={draftKey}
+                      onChange={(event) => setDraftKey(event.target.value)}
+                      placeholder={config.credentials[item.credentialRef]?.configured ? '已配置——输入新值可覆盖' : '输入 API Key'}
+                      aria-label={`${item.providerId} API Key`}
+                    />
+                  </div>
+                  <div className="ww-field">
+                    <span className="ww-field__label">模型</span>
+                    <Input
+                      value={draftModel}
+                      onChange={(event) => setDraftModel(event.target.value)}
+                      placeholder={DEFAULT_PROVIDER_MODELS[item.providerId as ImageProviderId] ?? '默认模型'}
+                      aria-label={`${item.providerId} 模型`}
+                    />
+                  </div>
+                  <div className="ww-field">
+                    <span className="ww-field__label">Base URL <span className="ww-field__hint">可选</span></span>
+                    <Input
+                      value={draftBaseUrl}
+                      onChange={(event) => setDraftBaseUrl(event.target.value)}
+                      placeholder="默认官方地址"
+                      aria-label={`${item.providerId} Base URL`}
+                    />
+                  </div>
+                </div>
+                <div className="ww-settings__row">
+                  <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProvider(item)} disabled={providerSaveState === 'saving'}>
+                    保存
+                  </Button>
+                  <SaveState state={providerSaveState} />
+                </div>
+              </div>
+            ) : null}
           </li>
         ))}
       </ol>
