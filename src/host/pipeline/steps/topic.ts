@@ -44,7 +44,8 @@ export async function aggregateHotspots(
     });
   });
   items.sort((left, right) => left.rank - right.rank || left.title.localeCompare(right.title));
-  return { items: items.slice(0, Math.max(0, limit)), failures };
+  // 跨源合并后重新编号：各源 rank 都从 1 起，直接展示会出现多个 #1。
+  return { items: items.slice(0, Math.max(0, limit)).map((item, index) => ({ ...item, rank: index + 1 })), failures };
 }
 
 // ── 内置源适配器（fetch 注入，可测）─────────────────────────────────────────
