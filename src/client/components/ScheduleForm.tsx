@@ -117,6 +117,8 @@ export function ScheduleForm({
     <Modal
       open={open}
       onClose={onCancel}
+      className="ww-modal"
+      contentClassName="ww-schedule-form-scroll"
       title={initial?.id ? `改期：${initial.name}` : '新建定时任务'}
       closeLabel="取消"
       description="按计划自动执行 WeWrite 任务；发布目标始终不含群发。"
@@ -150,20 +152,24 @@ export function ScheduleForm({
             <span className="ww-schedule-form__group-index">1</span>
             <span className="ww-schedule-form__group-title">任务类型</span>
           </div>
-          <div className="ww-type-grid" role="radiogroup" aria-label="任务类型">
+          <div className="ww-type-list" role="radiogroup" aria-label="任务类型">
             {ACTIONS.map((option) => (
               <button
                 key={option.id}
                 type="button"
                 role="radio"
                 aria-checked={action === option.id}
-                className={action === option.id ? 'ww-type-card ww-type-card--active' : 'ww-type-card'}
+                className={action === option.id ? 'ww-type-option ww-type-option--active' : 'ww-type-option'}
                 onClick={() => setAction(option.id)}
               >
-                {action === option.id ? <Icon name="check" size={16} className="ww-type-card__check" /> : null}
-                <Icon name={option.icon} size={20} />
-                <span className="ww-type-card__label">{option.label}</span>
-                <span className="ww-type-card__desc">{option.desc}</span>
+                <span className="ww-type-option__icon">
+                  <Icon name={option.icon} size={20} />
+                </span>
+                <span className="ww-type-option__body">
+                  <span className="ww-type-option__label">{option.label}</span>
+                  <span className="ww-type-option__desc">{option.desc}</span>
+                </span>
+                {action === option.id ? <Icon name="check" size={16} className="ww-type-option__check" /> : null}
               </button>
             ))}
           </div>
