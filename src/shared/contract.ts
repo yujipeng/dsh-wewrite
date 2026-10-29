@@ -14,6 +14,7 @@ import {
   RunParamsSchema,
   SlugSchema,
   TimeZoneSchema,
+  WritingProfileSchema,
 } from './schema-base';
 import {
   ArticleDetailSchema,
@@ -88,6 +89,7 @@ const ConfigSetRequestSchema = z.strictObject({
   defaultImageSize: IMAGE_SIZES.optional(),
   llmDefault: LlmOverrideSchema.optional(),
   agentToolsEnabled: z.boolean().optional(),
+  writingProfile: WritingProfileSchema.optional(),
   runHistoryLimit: z.number().int().min(1).max(1000).optional(),
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),

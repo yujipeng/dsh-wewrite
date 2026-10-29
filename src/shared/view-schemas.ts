@@ -11,6 +11,7 @@ import {
   RUN_STATUSES,
   RunParamsSchema,
   SlugSchema,
+  WritingProfileSchema,
 } from './schema-base';
 
 export const HotspotItemSchema = z.strictObject({
@@ -146,6 +147,7 @@ export const ConfigSettingsViewSchema = z.strictObject({
   defaultImageSize: z.enum(['1024x1024', '1024x1536', '1536x1024', '1344x768', '768x1344']),
   llmDefault: LlmOverrideSchema,
   agentToolsEnabled: z.boolean(),
+  writingProfile: WritingProfileSchema,
   runHistoryLimit: z.number().int().min(1).max(1000),
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),

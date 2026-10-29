@@ -55,6 +55,8 @@ export interface PipelineDeps {
   readonly now?: () => Date;
   /** 渲染完成后回调（service 层把成稿落 article 记录）；返回文章 id 供后续回绑。 */
   readonly onProduced?: (output: { markdown: string; runId: string }) => Promise<string | void>;
+  /** 公众号写作要求（设置页 writingProfile）；每次文本步实时读取，改设置即生效。 */
+  readonly writingProfile?: () => import('../../shared/schema-base').WritingProfile | undefined;
   /** images 步完成后回调（封面/正文图回写文章，P0-1：推送核心流绑定链）。 */
   readonly onImagesBound?: (output: {
     readonly articleId: string;
@@ -184,8 +186,8 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               deps.llm,
               {
                 purpose: 'wewrite-pipeline',
-                system: pipelineSystemPrompt(),
-                user: outlineUserPrompt(topic, params.brief, retryMissing),
+                system: pipelineSystemPrompt(deps.writingProfile?.()),
+                user: outlineUserPrompt(topic, params.brief, retryMissing, deps.writingProfile?.()),
                 ...llmCall,
               },
               signal,
@@ -222,8 +224,8 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               deps.llm,
               {
                 purpose: 'wewrite-pipeline',
-                system: pipelineSystemPrompt(),
-                user: draftUserPrompt(topic, outline, params.brief, retryMissing, retryInvisible),
+                system: pipelineSystemPrompt(deps.writingProfile?.()),
+                user: draftUserPrompt(topic, outline, params.brief, retryMissing, retryInvisible, deps.writingProfile?.()),
                 ...llmCall,
               },
               signal,

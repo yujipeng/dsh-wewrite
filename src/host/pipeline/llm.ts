@@ -6,8 +6,9 @@
  * 在真宿主上产出 0 字空稿（v0.1.4 缺陷），本层按真实协议重写。
  */
 
-export interface LlmStreamOptions {
-  /** 辅助调用标注（F22）：wewrite-pipeline。 */
+import type { WritingProfile } from '../../shared/schema-base';
+
+export interface LlmStreamOptions {  /** 辅助调用标注（F22）：wewrite-pipeline。 */
   readonly purpose: string;
   /** 宿主 GenerateOptions.system：系统提示独立字段，不进 messages。 */
   readonly system: string;
@@ -112,6 +113,22 @@ const SYSTEM_STYLE = [
   '面向已具备工程背景的读者，直接进入具体事实与取舍。',
 ].join('');
 
+/** 公众号写作要求（来自设置页，参考 wechat-article/.wewrite/style.yaml）；空项不注入。 */
+export function writingProfileLines(profile?: WritingProfile): string[] {
+  if (!profile) return [];
+  const lines: string[] = [];
+  if (profile.name) lines.push(`公众号：${profile.name}${profile.industry ? `（${profile.industry}）` : ''}`);
+  if (profile.topics.length) lines.push(`主题方向：${profile.topics.join('、')}`);
+  if (profile.tone) lines.push(`语气：${profile.tone}`);
+  if (profile.voice) lines.push(`人称与视角：${profile.voice}`);
+  if (profile.wordCount) lines.push(`目标字数：${profile.wordCount}`);
+  if (profile.contentStyle) lines.push(`内容风格：${profile.contentStyle}`);
+  if (profile.persona) lines.push(`写作人格：${profile.persona}`);
+  if (profile.blacklistWords.length) lines.push(`禁用词（不得出现）：${profile.blacklistWords.join('、')}`);
+  if (profile.blacklistTopics.length) lines.push(`不写的话题：${profile.blacklistTopics.join('、')}`);
+  return lines;
+}
+
 /** 启动 brief 的 prompt 投影（v0.5 变密度输入，docs/v0.5-launch-brief.md）。 */
 export interface LaunchBriefForPrompt {
   readonly title?: string;
@@ -120,13 +137,21 @@ export interface LaunchBriefForPrompt {
   readonly sources?: readonly string[];
 }
 
-export function outlineUserPrompt(topic: string, brief?: LaunchBriefForPrompt, retryMissing?: readonly string[]): string {
+export function outlineUserPrompt(
+  topic: string,
+  brief?: LaunchBriefForPrompt,
+  retryMissing?: readonly string[],
+  profile?: WritingProfile,
+): string {
   const skeleton = brief?.outline?.length ? brief.outline : undefined;
+  const profileLines = writingProfileLines(profile);
+  const profileBlock = profileLines.length ? ['公众号写作要求：', ...profileLines, ''] : [];
   if (skeleton) {
     // 骨架绑模式：给定节名合同（原样保留、顺序不变），LLM 只做补洞。
     return [
       `主题：${topic}`,
       '',
+      ...profileBlock,
       '用户已定大纲骨架——以下节名必须原样保留（一字不改）、相对顺序不变：',
       ...skeleton.map((section) => `- ${section}`),
       '',
@@ -142,6 +167,7 @@ export function outlineUserPrompt(topic: string, brief?: LaunchBriefForPrompt, r
   return [
     `主题：${topic}`,
     '',
+    ...profileBlock,
     '请给出一篇文章大纲：',
     '- 5 到 8 个二级标题小节，每节一句话说明要覆盖的具体内容；',
     '- 标注每节计划出现的具体证据类型（数据/命令/对比/亲历细节）；',
@@ -155,8 +181,11 @@ export function draftUserPrompt(
   brief?: LaunchBriefForPrompt,
   retryMissingOutline?: readonly string[],
   retryInvisibleSources?: readonly string[],
+  profile?: WritingProfile,
 ): string {
   const lines: string[] = [`主题：${topic}`];
+  const profileLines = writingProfileLines(profile);
+  if (profileLines.length) lines.push('', '公众号写作要求：', ...profileLines);
   if (brief?.title) {
     lines.push(`已定标题：《${brief.title}》——全文围绕这个题目展开；正文仍不出现一级标题（由发布字段承载）。`);
   }
@@ -202,8 +231,9 @@ export function draftUserPrompt(
   return lines.join('\n');
 }
 
-export function pipelineSystemPrompt(): string {
-  return SYSTEM_STYLE;
+export function pipelineSystemPrompt(profile?: WritingProfile): string {
+  const lines = writingProfileLines(profile);
+  return lines.length ? `${SYSTEM_STYLE}\n${lines.join('\n')}` : SYSTEM_STYLE;
 }
 
 // ── 文章改写提示（uiux v0.3 §3；只输出改写文本，无围栏无前后语）──────────────────

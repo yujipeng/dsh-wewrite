@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { ImageProviderConfigSchema, LlmOverrideSchema, RUN_STATUSES, RunParamsSchema } from '../shared/contract';
 import { isValidTimeZone } from '../shared/contract';
+import { EMPTY_WRITING_PROFILE, WritingProfileSchema } from '../shared/schema-base';
 
 const SlugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'slug 必须是 kebab-case' });
 const TimeZoneSchema = z.string().refine(isValidTimeZone, { message: '必须是合法 IANA 时区' });
@@ -29,6 +30,7 @@ export const SettingsRecordSchema = z.strictObject({
     { providerId: 'openai', credentialRef: 'WEWRITE_IMG_OPENAI' },
   ]),
   agentToolsEnabled: z.boolean().default(false),
+  writingProfile: WritingProfileSchema.default(EMPTY_WRITING_PROFILE),
   runHistoryLimit: z.number().int().min(1).max(1000).default(200),
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).default(['weibo', 'toutiao', 'baidu']),
   hotspotAggregatorUrl: z.string().default(''),

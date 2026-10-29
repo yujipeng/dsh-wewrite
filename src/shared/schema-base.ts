@@ -30,6 +30,39 @@ export const ImageProviderConfigSchema = z.strictObject({
 });
 export type ImageProviderConfig = z.infer<typeof ImageProviderConfigSchema>;
 
+/**
+ * 公众号写作要求（参考 wechat-article/.wewrite/style.yaml）：
+ * 生成文章时作为硬性要求注入 outline/draft prompt；空字段不注入。
+ */
+export const WritingProfileSchema = z.strictObject({
+  name: z.string().default(''),
+  industry: z.string().default(''),
+  topics: z.array(z.string()).default([]),
+  tone: z.string().default(''),
+  voice: z.string().default(''),
+  wordCount: z.string().default(''),
+  contentStyle: z.string().default(''),
+  persona: z.string().default(''),
+  blacklistWords: z.array(z.string()).default([]),
+  blacklistTopics: z.array(z.string()).default([]),
+  coverStyle: z.string().default(''),
+});
+export type WritingProfile = z.infer<typeof WritingProfileSchema>;
+
+export const EMPTY_WRITING_PROFILE: WritingProfile = {
+  name: '',
+  industry: '',
+  topics: [],
+  tone: '',
+  voice: '',
+  wordCount: '',
+  contentStyle: '',
+  persona: '',
+  blacklistWords: [],
+  blacklistTopics: [],
+  coverStyle: '',
+};
+
 export const LlmOverrideSchema = z.strictObject({
   provider: z.string().optional(),
   model: z.string().optional(),

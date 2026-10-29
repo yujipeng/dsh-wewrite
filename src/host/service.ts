@@ -97,6 +97,7 @@ export class WeWriteService {
         },
       }),
       onProduced: ({ markdown, runId }) => this.articles.persistProduced(markdown, runId),
+      writingProfile: () => this.settings.writingProfile,
       onImagesBound: ({ articleId, coverImageId, bodyImageIds }) =>
         this.articles.bindImages(articleId, { coverImageId, bodyImageIds }),
       now: this.nowFn,

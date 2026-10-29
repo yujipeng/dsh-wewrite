@@ -122,7 +122,8 @@ RRULE 规则与下次运行时间人类可读展示（规则原文收进悬停�
 - **侧边栏直进**：不进任何会话，点侧边栏底部「打开写作台」即全屏铺开完整工作台，Esc 收起；会话内「写作台」tab 保留，双入口并存。
 - **Markdown 编辑器 + 微信预览**：CodeMirror 编辑器改稿，右侧实时微信预览（host 侧渲染，预览 HTML 与推送载荷字节一致，所见即所推）。三套排版主题：professional-clean / tech-dark / minimal-gray。
 - **质量门禁**：成稿先过门禁（内容质量校验 + 编号配图一致性校验），门禁未过会阻断默认推送路径；你可以改稿重过，或显式覆盖。
-- **RRULE 定时，默认进草稿箱**：RRULE 规则（如每个工作日 04:00）定时跑管线，产物恒定推草稿箱，运行历史完整可审计。错过计划时刻不补偿，下次启动时提示错过数。
+- **RRULE 定时，三种任务类型**：定时到草稿箱（跑管线生成并自动推送）、定时生成文章（只落本地写作台）、定时选题（抓热榜 + AI 速览，候选展示在选题页）。规则如「每个工作日 04:00」；运行历史完整可审计，错过计划时刻不补偿，下次启动时提示错过数。
+- **公众号写作要求（风格配置）**：设置页可配公众号定位、主题方向、语气、人称、目标字数、内容风格、写作人格、禁用词、不写话题与封面风格（对齐 `wechat-article/.wewrite/style.yaml`）。生成文章时作为硬性要求注入大纲/成稿提示词，留空则不注入。
 - **9 家图片供应商，gpt-image-2 优先**：openai（gpt-image-2）→ doubao → dashscope → jimeng → minimax → azure_openai → gemini → openrouter → replicate 的 fallback 链。单家失败自动降级下一家，产物标注实际使用的供应商；全部失败时无图推进，不阻塞成稿。缺省只配 openai 一家，其余按需在设置页增排。
 - **模型走 DSH 原生配置**：不另建模型账号体系。管线文本步直接用宿主 `ctx.llm`（即 DSH 设置页里配的模型），也可对单次运行覆盖 provider/model。
 - **弱模型参数宽容（v0.5.1）**：agent 工具收到 `outline` / `sources` 的 JSON 字符串、字符串数字等常见弱模型参数形态时自动宽容转换，避免工具调用因参数格式直接失败。
@@ -174,6 +175,19 @@ DSH Host（Node + Cordis）
 | AppID / AppSecret | 公众平台「设置与开发 → 基本配置」获取；Secret 保存后界面只回显掩码 |
 | 作者名 | 草稿作者字段 |
 | 微信 API 地址 | 缺省 `https://api.weixin.qq.com`（直连）。出口 IP 不在白名单时改为你的 relay 地址（见 [tools/wechat-relay](tools/wechat-relay/README.md)） |
+
+**写作要求（公众号风格）**
+
+参考 `wechat-article/.wewrite/style.yaml`，生成文章时注入大纲（outline）与成稿（draft）提示词；留空字段不注入，修改后对下一次生成生效：
+
+| 字段 | 作用 |
+|---|---|
+| 公众号定位 / 行业 | 账号是谁、面向谁（对应 style.yaml 的 `name` / `industry`） |
+| 主题方向 | 常写的话题范围（每行一条，对应 `topics`） |
+| 语气 / 人称与视角 | 口语化程度、第一/第三人称（`tone` / `voice`） |
+| 目标字数 / 内容风格 / 写作人格 | `word_count` / `content_style` / `writing_persona` |
+| 禁用词 / 不写的话题 | 硬性负向约束（`blacklist.words` / `blacklist.topics`） |
+| 封面风格 | 配图与封面提示参考（`cover_style`） |
 
 **图片供应商链**
 

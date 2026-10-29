@@ -68,6 +68,7 @@ describe('AC-5 凭据 write-only：service 层（qa-test-plan §10-1 补齐）',
         'wechatApiBaseUrl',
         'wechatAppId',
         'wechatAuthor',
+        'writingProfile',
       ].sort(),
     );
   });

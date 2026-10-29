@@ -95,6 +95,7 @@ export function buildConfigView(
       defaultImageSize: settings.defaultImageSize,
       llmDefault: settings.llmDefault ?? {},
       agentToolsEnabled: settings.agentToolsEnabled,
+      writingProfile: settings.writingProfile,
       runHistoryLimit: settings.runHistoryLimit,
       hotspotSources: settings.hotspotSources,
       hotspotAggregatorUrl: settings.hotspotAggregatorUrl,

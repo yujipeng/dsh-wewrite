@@ -219,6 +219,24 @@
 .ww-type-card__label { font-size: var(--ww-text-sm); font-weight: var(--ww-weight-medium); }
 .ww-type-card__desc { font-size: var(--ww-text-xs); color: var(--ww-fg-secondary); line-height: 1.5; }
 
+.ww-textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  padding: var(--ww-space-2) var(--ww-space-3);
+  border: var(--ww-border-width) solid var(--ww-border);
+  border-radius: var(--ww-radius-md);
+  background: var(--ww-surface);
+  color: var(--ww-fg);
+  font: inherit;
+  font-size: var(--ww-text-sm);
+  line-height: 1.6;
+}
+.ww-textarea:focus { outline: none; border-color: var(--ww-accent); }
+.ww-textarea::placeholder { color: var(--ww-fg-caption); }
+
+.ww-settings__divider { border-top: var(--ww-border-width) solid var(--ww-divider); margin: var(--ww-space-2) 0; }
+
 .ww-rrule-details { margin-left: auto; }
 .ww-rrule-details summary { cursor: pointer; font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); list-style: none; }
 .ww-rrule-details summary::-webkit-details-marker { display: none; }
