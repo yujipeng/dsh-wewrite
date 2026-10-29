@@ -328,6 +328,49 @@
 
 .ww-settings__divider { border-top: var(--ww-border-width) solid var(--ww-divider); margin: var(--ww-space-2) 0; }
 
+/* ---------- 公众号写作要求（分组卡片 / 两列与三列网格） ---------- */
+
+.ww-writing-profile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-4);
+  padding: var(--ww-space-4);
+  border: var(--ww-border-width) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface-sunken);
+}
+
+.ww-writing-profile__head { display: flex; flex-direction: column; gap: 4px; }
+.ww-writing-profile__head .ww-settings__h { margin: 0; }
+.ww-writing-profile__group { display: flex; flex-direction: column; gap: var(--ww-space-3); }
+.ww-writing-profile__group-title {
+  margin: 0;
+  font-size: var(--ww-text-xs);
+  font-weight: var(--ww-weight-medium);
+  color: var(--ww-fg-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.ww-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ww-space-3); }
+.ww-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ww-space-3); }
+.ww-writing-profile__wide-left { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+.ww-writing-profile__stack { display: flex; flex-direction: column; gap: var(--ww-space-3); }
+
+.ww-writing-profile__footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding-top: var(--ww-space-3);
+  border-top: 1px dashed var(--ww-divider);
+}
+
+@media (max-width: 720px) {
+  .ww-grid-2,
+  .ww-grid-3,
+  .ww-writing-profile__wide-left { grid-template-columns: 1fr; }
+}
+
 .ww-rrule-details { margin-left: auto; }
 .ww-rrule-details summary { cursor: pointer; font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); list-style: none; }
 .ww-rrule-details summary::-webkit-details-marker { display: none; }

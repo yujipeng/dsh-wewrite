@@ -110,108 +110,130 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
         <SaveState state={saveState} />
       </div>
 
-      <div className="ww-settings__divider" />
-      <h3 className="ww-settings__h">写作要求（生成文章时注入）</h3>
-      <p className="ww-field__hint">参考 wechat-article/.wewrite/style.yaml；留空则不注入。修改后对下一次生成生效。</p>
-      <div className="ww-field-row">
-        <label className="ww-field">
-          <span className="ww-field__label">公众号定位</span>
-          <Input value={profile.name} onChange={(event) => updateProfile('name', event.target.value)} placeholder="如：社会现象心理分析" aria-label="公众号定位" />
-        </label>
-        <label className="ww-field">
-          <span className="ww-field__label">行业 / 领域</span>
-          <Input value={profile.industry} onChange={(event) => updateProfile('industry', event.target.value)} placeholder="如：心理学 / 社会观察" aria-label="行业领域" />
-        </label>
-      </div>
-      <label className="ww-field">
-        <span className="ww-field__label">主题方向 <span className="ww-field__hint">每行一条</span></span>
-        <textarea
-          className="ww-textarea"
-          rows={4}
-          value={topicsText}
-          onChange={(event) => setTopicsText(event.target.value)}
-          placeholder={'社会热点背后的心理机制\n人际关系与边界感'}
-          aria-label="主题方向"
-        />
-      </label>
-      <div className="ww-field-row">
-        <label className="ww-field">
-          <span className="ww-field__label">语气</span>
-          <textarea
-            className="ww-textarea"
-            rows={2}
-            value={profile.tone}
-            onChange={(event) => updateProfile('tone', event.target.value)}
-            placeholder="像朋友聊天，冷静不贩卖焦虑，给可操作动作"
-            aria-label="语气"
-          />
-        </label>
-        <label className="ww-field">
-          <span className="ww-field__label">人称与视角</span>
-          <textarea
-            className="ww-textarea"
-            rows={2}
-            value={profile.voice}
-            onChange={(event) => updateProfile('voice', event.target.value)}
-            placeholder="第一人称，边聊边把道理讲清楚"
-            aria-label="人称与视角"
-          />
-        </label>
-      </div>
-      <div className="ww-field-row">
-        <label className="ww-field">
-          <span className="ww-field__label">目标字数</span>
-          <Input value={profile.wordCount} onChange={(event) => updateProfile('wordCount', event.target.value)} placeholder="1800-2600" aria-label="目标字数" />
-        </label>
-        <label className="ww-field">
-          <span className="ww-field__label">内容风格</span>
-          <Input value={profile.contentStyle} onChange={(event) => updateProfile('contentStyle', event.target.value)} placeholder="干货 / 故事 / 观点" aria-label="内容风格" />
-        </label>
-        <label className="ww-field">
-          <span className="ww-field__label">写作人格</span>
-          <Input value={profile.persona} onChange={(event) => updateProfile('persona', event.target.value)} placeholder="如 midnight-friend" aria-label="写作人格" />
-        </label>
-      </div>
-      <div className="ww-field-row">
-        <label className="ww-field">
-          <span className="ww-field__label">禁用词 <span className="ww-field__hint">每行一条</span></span>
-          <textarea
-            className="ww-textarea"
-            rows={3}
-            value={blacklistWordsText}
-            onChange={(event) => setBlacklistWordsText(event.target.value)}
-            placeholder={'震惊\n必看'}
-            aria-label="禁用词"
-          />
-        </label>
-        <label className="ww-field">
-          <span className="ww-field__label">不写的话题 <span className="ww-field__hint">每行一条</span></span>
-          <textarea
-            className="ww-textarea"
-            rows={3}
-            value={blacklistTopicsText}
-            onChange={(event) => setBlacklistTopicsText(event.target.value)}
-            placeholder={'诊断他人精神疾病\n政治敏感'}
-            aria-label="不写的话题"
-          />
-        </label>
-      </div>
-      <label className="ww-field">
-        <span className="ww-field__label">封面风格 <span className="ww-field__hint">可选，供配图参考</span></span>
-        <textarea
-          className="ww-textarea"
-          rows={2}
-          value={profile.coverStyle}
-          onChange={(event) => updateProfile('coverStyle', event.target.value)}
-          placeholder="简洁、留白多，符号化意象，避免夸张人脸"
-          aria-label="封面风格"
-        />
-      </label>
-      <div className="ww-settings__row">
-        <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProfile()} disabled={profileSaveState === 'saving'}>
-          保存写作要求
-        </Button>
-        <SaveState state={profileSaveState} />
+      <div className="ww-writing-profile">
+        <div className="ww-writing-profile__head">
+          <h3 className="ww-settings__h">写作要求</h3>
+          <p className="ww-field__hint">生成文章时注入大纲与成稿提示词；留空不注入。参考 wechat-article/.wewrite/style.yaml，修改后对下一次生成生效。</p>
+        </div>
+
+        <section className="ww-writing-profile__group">
+          <h4 className="ww-writing-profile__group-title">账号定位</h4>
+          <div className="ww-grid-2">
+            <label className="ww-field">
+              <span className="ww-field__label">公众号定位</span>
+              <Input value={profile.name} onChange={(event) => updateProfile('name', event.target.value)} placeholder="如：社会现象心理分析" aria-label="公众号定位" />
+            </label>
+            <label className="ww-field">
+              <span className="ww-field__label">行业 / 领域</span>
+              <Input value={profile.industry} onChange={(event) => updateProfile('industry', event.target.value)} placeholder="如：心理学 / 社会观察" aria-label="行业领域" />
+            </label>
+          </div>
+        </section>
+
+        <section className="ww-writing-profile__group">
+          <h4 className="ww-writing-profile__group-title">表达风格</h4>
+          <div className="ww-grid-2">
+            <label className="ww-field">
+              <span className="ww-field__label">语气</span>
+              <textarea
+                className="ww-textarea"
+                rows={2}
+                value={profile.tone}
+                onChange={(event) => updateProfile('tone', event.target.value)}
+                placeholder="像朋友聊天，冷静不贩卖焦虑，给可操作动作"
+                aria-label="语气"
+              />
+            </label>
+            <label className="ww-field">
+              <span className="ww-field__label">人称与视角</span>
+              <textarea
+                className="ww-textarea"
+                rows={2}
+                value={profile.voice}
+                onChange={(event) => updateProfile('voice', event.target.value)}
+                placeholder="第一人称，边聊边把道理讲清楚"
+                aria-label="人称与视角"
+              />
+            </label>
+          </div>
+          <div className="ww-grid-3">
+            <label className="ww-field">
+              <span className="ww-field__label">目标字数</span>
+              <Input value={profile.wordCount} onChange={(event) => updateProfile('wordCount', event.target.value)} placeholder="1800-2600" aria-label="目标字数" />
+            </label>
+            <label className="ww-field">
+              <span className="ww-field__label">内容风格</span>
+              <Input value={profile.contentStyle} onChange={(event) => updateProfile('contentStyle', event.target.value)} placeholder="干货 / 故事 / 观点" aria-label="内容风格" />
+            </label>
+            <label className="ww-field">
+              <span className="ww-field__label">写作人格</span>
+              <Input value={profile.persona} onChange={(event) => updateProfile('persona', event.target.value)} placeholder="如 midnight-friend" aria-label="写作人格" />
+            </label>
+          </div>
+        </section>
+
+        <section className="ww-writing-profile__group">
+          <h4 className="ww-writing-profile__group-title">主题与禁忌</h4>
+          <div className="ww-grid-2 ww-writing-profile__wide-left">
+            <label className="ww-field">
+              <span className="ww-field__label">主题方向 <span className="ww-field__hint">每行一条</span></span>
+              <textarea
+                className="ww-textarea"
+                rows={4}
+                value={topicsText}
+                onChange={(event) => setTopicsText(event.target.value)}
+                placeholder={'社会热点背后的心理机制\n人际关系与边界感'}
+                aria-label="主题方向"
+              />
+            </label>
+            <div className="ww-writing-profile__stack">
+              <label className="ww-field">
+                <span className="ww-field__label">禁用词 <span className="ww-field__hint">每行一条</span></span>
+                <textarea
+                  className="ww-textarea"
+                  rows={2}
+                  value={blacklistWordsText}
+                  onChange={(event) => setBlacklistWordsText(event.target.value)}
+                  placeholder={'震惊\n必看'}
+                  aria-label="禁用词"
+                />
+              </label>
+              <label className="ww-field">
+                <span className="ww-field__label">不写的话题 <span className="ww-field__hint">每行一条</span></span>
+                <textarea
+                  className="ww-textarea"
+                  rows={2}
+                  value={blacklistTopicsText}
+                  onChange={(event) => setBlacklistTopicsText(event.target.value)}
+                  placeholder={'诊断他人精神疾病\n政治敏感'}
+                  aria-label="不写的话题"
+                />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section className="ww-writing-profile__group">
+          <h4 className="ww-writing-profile__group-title">配图</h4>
+          <label className="ww-field">
+            <span className="ww-field__label">封面风格 <span className="ww-field__hint">可选，供配图参考</span></span>
+            <textarea
+              className="ww-textarea"
+              rows={2}
+              value={profile.coverStyle}
+              onChange={(event) => updateProfile('coverStyle', event.target.value)}
+              placeholder="简洁、留白多，符号化意象，避免夸张人脸"
+              aria-label="封面风格"
+            />
+          </label>
+        </section>
+
+        <div className="ww-writing-profile__footer">
+          <SaveState state={profileSaveState} />
+          <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProfile()} disabled={profileSaveState === 'saving'}>
+            保存写作要求
+          </Button>
+        </div>
       </div>
     </div>
   );
