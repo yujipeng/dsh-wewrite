@@ -188,3 +188,40 @@
 }
 
 .ww-rrule-preview__label { display: inline-flex; align-items: center; gap: var(--ww-space-2); font-size: var(--ww-text-sm); color: var(--ww-fg-secondary); }
+
+/* ---------- 定时任务弹层：类型卡片与分组 ---------- */
+
+.ww-schedule-form__group { display: flex; flex-direction: column; gap: var(--ww-space-3); }
+.ww-schedule-form__group + .ww-schedule-form__group { padding-top: var(--ww-space-3); border-top: var(--ww-border-width) solid var(--ww-divider); }
+.ww-schedule-form__group-title { font-size: var(--ww-text-sm); font-weight: var(--ww-weight-medium); color: var(--ww-fg-secondary); letter-spacing: 0.02em; }
+.ww-schedule-form__plan { display: flex; gap: var(--ww-space-4); flex-wrap: wrap; align-items: flex-end; }
+.ww-schedule-form__summary { margin: 0; font-size: var(--ww-text-sm); color: var(--ww-fg-secondary); line-height: 1.6; }
+
+.ww-type-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ww-space-2); }
+@media (max-width: 640px) { .ww-type-grid { grid-template-columns: 1fr; } }
+
+.ww-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ww-space-1);
+  padding: var(--ww-space-3);
+  border: var(--ww-border-width) solid var(--ww-border);
+  border-radius: var(--ww-radius-md);
+  background: var(--ww-surface);
+  color: var(--ww-fg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.ww-type-card:hover { border-color: var(--ww-fg-tertiary); }
+.ww-type-card--active { border-color: var(--ww-accent); background: var(--ww-accent-subtle); }
+.ww-type-card__label { font-size: var(--ww-text-sm); font-weight: var(--ww-weight-medium); }
+.ww-type-card__desc { font-size: var(--ww-text-xs); color: var(--ww-fg-secondary); line-height: 1.5; }
+
+.ww-rrule-details { margin-left: auto; }
+.ww-rrule-details summary { cursor: pointer; font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); list-style: none; }
+.ww-rrule-details summary::-webkit-details-marker { display: none; }
+.ww-rrule-details[open] summary { color: var(--ww-fg-secondary); }
+
+.ww-schedule-card__kind { font-size: var(--ww-text-xs); color: var(--ww-fg-secondary); border: var(--ww-border-width) solid var(--ww-border); border-radius: var(--ww-radius-full); padding: 1px var(--ww-space-2); }

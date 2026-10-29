@@ -16,6 +16,8 @@ interface RpcPayload {
   readonly callId?: string;
   readonly articleId?: string;
   readonly enabled?: boolean;
+  readonly action?: string;
+  readonly topicCount?: number;
   readonly limit?: number;
   readonly rank?: number;
   readonly url?: string;
@@ -86,6 +88,8 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
       return service.saveSchedule({
         ...(payload.id ? { id: payload.id } : {}),
         name: String(payload.name),
+        action: (payload.action ?? 'draft') as 'draft' | 'article' | 'topics',
+        ...(payload.topicCount ? { topicCount: payload.topicCount } : {}),
         rrule: String(payload.rrule),
         timeZone: String(payload.timeZone),
         params: payload.params as RunParams,

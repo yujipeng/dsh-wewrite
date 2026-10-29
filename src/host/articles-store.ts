@@ -99,6 +99,8 @@ export class ArticleStore {
         updatedAt: now,
       });
       await this.deps.tables.articles.put(record.id, record);
+      // 回绑 run.articleId：定时 draft 任务完成后据此自动推草稿箱。
+      this.deps.runStore.update(runId, (current) => ({ ...current, articleId: record.id }));
       return record.id;
     });
   }

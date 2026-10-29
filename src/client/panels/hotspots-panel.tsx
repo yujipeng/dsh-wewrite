@@ -76,6 +76,7 @@ export function HotspotsPanel() {
   }, [state, onlyHits, hit]);
 
   const failure = state.status === 'error' ? describeRpcFailure(new Error(state.message)) : undefined;
+  const candidates = store.snapshot.status === 'ready' ? store.snapshot.data.topicCandidates : [];
 
   function addKeyword() {
     const word = keywordDraft.trim();
@@ -102,6 +103,40 @@ export function HotspotsPanel() {
             {t('action.refresh')}
           </Button>
         </div>
+        {candidates.length > 0 ? (
+          <section className="ww-candidates">
+            <div className="ww-candidates__head">
+              <span className="ww-candidates__title">
+                <Icon name="sparkles" size={16} /> 定时选题候选
+              </span>
+              <span className="ww-candidates__meta">
+                更新于 {formatTime(candidates[0].createdAt)} · {candidates.length} 条
+              </span>
+            </div>
+            <ul className="ww-candidates__list">
+              {candidates.map((item) => (
+                <li key={item.id} className="ww-candidate">
+                  <span className="ww-candidate__rank">#{item.rank}</span>
+                  <div className="ww-candidate__body">
+                    <span className="ww-candidate__title">{item.title}</span>
+                    <span className="ww-candidate__meta">
+                      {hotspotSourceLabel(item.source)} · {domainOf(item.url)}
+                    </span>
+                    {item.digest ? <p className="ww-candidate__digest">{item.digest}</p> : null}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<Icon name="pen-line" size={16} />}
+                    onClick={() => void startGeneration({ topicMode: 'fixed', topic: item.title }, item.title)}
+                  >
+                    {t('action.writeThis')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {state.status === 'idle' || state.status === 'loading' ? (
           <div>
             <SkeletonRow />

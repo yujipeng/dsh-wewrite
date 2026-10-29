@@ -86,11 +86,16 @@ export type RunRecord = z.infer<typeof RunRecordSchema>;
 
 // ── table：schedules ────────────────────────────────────────────────────────
 
+export const ScheduleActionSchema = z.enum(['draft', 'article', 'topics']);
+export type ScheduleAction = z.infer<typeof ScheduleActionSchema>;
+
 export const ScheduleRecordSchema = z.strictObject({
   v: z.number().int().min(1),
   id: z.string().min(1),
   revision: z.number().int().min(1),
   name: z.string().min(1),
+  action: ScheduleActionSchema.default('draft'),
+  topicCount: z.number().int().min(1).max(10).optional(),
   rrule: z.string().min(1),
   timeZone: TimeZoneSchema,
   params: RunParamsSchema,
@@ -102,6 +107,22 @@ export const ScheduleRecordSchema = z.strictObject({
   updatedAt: z.string().optional(),
 });
 export type ScheduleRecord = z.infer<typeof ScheduleRecordSchema>;
+
+// ── table：topicCandidates（定时选题产物）────────────────────────────────────
+
+export const TopicCandidateRecordSchema = z.strictObject({
+  v: z.number().int().min(1),
+  id: z.string().min(1),
+  batchId: z.string().min(1),
+  scheduleId: z.string().optional(),
+  title: z.string().min(1),
+  source: z.string().min(1),
+  url: z.string(),
+  rank: z.number().int().min(1),
+  digest: z.string().optional(),
+  createdAt: z.string(),
+});
+export type TopicCandidateRecord = z.infer<typeof TopicCandidateRecordSchema>;
 
 // ── table：images ───────────────────────────────────────────────────────────
 
@@ -155,6 +176,7 @@ export const domainSpec = {
     articles: { valueSchema: ArticleRecordSchema },
     runs: { valueSchema: RunRecordSchema },
     schedules: { valueSchema: ScheduleRecordSchema },
+    topicCandidates: { valueSchema: TopicCandidateRecordSchema },
     images: { valueSchema: ImageRecordSchema },
   },
 } as const;

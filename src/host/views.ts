@@ -66,6 +66,8 @@ export function scheduleToView(record: ScheduleRecord): ScheduleViewModel {
     id: record.id,
     revision: record.revision,
     name: record.name,
+    action: record.action,
+    ...(record.topicCount ? { topicCount: record.topicCount } : {}),
     rrule: record.rrule,
     timeZone: record.timeZone,
     params: record.params,

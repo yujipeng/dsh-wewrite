@@ -6,7 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { RunParams, ScheduleViewModel } from '../shared/contract';
-import type { ScheduleRecord } from './domain';
+import type { ScheduleAction, ScheduleRecord } from './domain';
 import { computeNextRunAt, normalizeRrule } from './scheduler/rrule';
 import type { DomainTables } from './store';
 import { scheduleToView } from './views';
@@ -22,6 +22,8 @@ export interface ScheduleStoreDeps {
 export interface SaveScheduleInput {
   readonly id?: string;
   readonly name: string;
+  readonly action: ScheduleAction;
+  readonly topicCount?: number;
   readonly rrule: string;
   readonly timeZone: string;
   readonly params: RunParams;
@@ -41,6 +43,8 @@ export class ScheduleStore {
         id: existing?.id ?? `sch_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
         revision: (existing?.revision ?? 0) + 1,
         name: input.name,
+        action: input.action,
+        ...(input.topicCount ? { topicCount: input.topicCount } : {}),
         rrule: normalized,
         timeZone: input.timeZone,
         params: input.params,

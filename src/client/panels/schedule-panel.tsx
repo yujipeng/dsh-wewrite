@@ -3,9 +3,21 @@ import { Button, Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { RunSummary, ScheduleViewModel } from '@/shared/contract';
 import { describeRrule, formatDateTime, formatDuration, formatShortDateTime } from '../lib/format';
 import { EmptyState, ErrorNote, runStatusBadge, SkeletonBlock, StatusBadge } from '../components/bits';
-import { ScheduleForm } from '../components/ScheduleForm';
+import { ScheduleForm, type ScheduleFormAction } from '../components/ScheduleForm';
 import { Icon } from '../components/Icon';
 import { useStore } from '../store';
+
+function scheduleActionLabel(action: ScheduleFormAction): string {
+  if (action === 'topics') return '定时选题';
+  if (action === 'article') return '定时生成文章';
+  return '定时到草稿箱';
+}
+
+function scheduleTargetLabel(action: ScheduleFormAction): string {
+  if (action === 'topics') return '产物：选题候选（选题页）';
+  if (action === 'article') return '发布目标：仅保存到写作台';
+  return '发布目标：草稿箱（自动推送）';
+}
 
 /**
  * 定时任务（DESIGN §9.5）：排队队列（ScheduleCard）+ 执行历史（trigger=schedule 的 run 时间线）。
@@ -16,7 +28,7 @@ export function SchedulePanel() {
   const store = useStore();
   const { snapshot, refreshSnapshot, rpc, toast, t } = store;
   const [tab, setTab] = useState<'queue' | 'history'>('queue');
-  const [editing, setEditing] = useState<{ id: string; name: string; rrule: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string; action: ScheduleFormAction; topicCount?: number; rrule: string } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -84,12 +96,20 @@ export function SchedulePanel() {
     }
   }
 
-  async function submitForm(request: { id?: string; name: string; rrule: string; timeZone: string }) {
+  async function submitForm(request: { id?: string; name: string; action: ScheduleFormAction; topicCount?: number; rrule: string; timeZone: string }) {
     setFormBusy(true);
     try {
-      await rpc.call('schedule/save', request.id
-        ? { id: request.id, name: request.name, rrule: request.rrule, timeZone: request.timeZone, params: { topicMode: 'hotspots' }, enabled: true }
-        : { name: request.name, rrule: request.rrule, timeZone: request.timeZone, params: { topicMode: 'hotspots' }, enabled: true });
+      const body = {
+        ...(request.id ? { id: request.id } : {}),
+        name: request.name,
+        action: request.action,
+        ...(request.topicCount ? { topicCount: request.topicCount } : {}),
+        rrule: request.rrule,
+        timeZone: request.timeZone,
+        params: { topicMode: 'hotspots' },
+        enabled: true,
+      };
+      await rpc.call('schedule/save', body);
       toast.push({ kind: 'success', title: request.id ? '已改期' : '已创建定时任务', detail: request.name });
       setFormOpen(false);
       setEditing(null);
@@ -136,7 +156,7 @@ export function SchedulePanel() {
           <EmptyState
             icon={<Icon name="clock" size={20} />}
             subIcon="plus"
-            title="队列是空的。在编辑器里点「推草稿箱 ▾ → 定时」，或从选题中心创建每日选题任务。"
+            title="队列是空的。新建定时任务可定时出稿到草稿箱、只生成文章，或定时抓取选题。"
             action={
               <Button variant="outline" size="sm" icon={<Icon name="plus" size={16} />} onClick={() => setFormOpen(true)}>
                 新建定时
@@ -152,6 +172,7 @@ export function SchedulePanel() {
                   <div className="ww-schedule-card__head">
                     <Icon name="calendar-clock" size={16} />
                     <span className="ww-schedule-card__name">《{schedule.name}》</span>
+                    <span className="ww-schedule-card__kind">{scheduleActionLabel(schedule.action)}</span>
                     {paused ? <StatusBadge tone="warning" label="已暂停" /> : <StatusBadge tone="ongoing" label="已排期" />}
                   </div>
                   <div className="ww-schedule-card__body">
@@ -159,7 +180,7 @@ export function SchedulePanel() {
                     <p className="ww-schedule-card__human" title={schedule.rrule}>
                       {describeRrule(schedule.rrule)} · 下次 {formatDateTime(schedule.nextRunAt)}
                     </p>
-                    <p className="ww-schedule-card__target">发布目标：草稿箱（锁定）</p>
+                    <p className="ww-schedule-card__target">{scheduleTargetLabel(schedule.action)}</p>
                   </div>
                   <div className="ww-schedule-card__actions">
                     <Button variant="ghost" size="sm" icon={<Icon name={schedule.enabled ? 'pause' : 'play'} size={16} />} onClick={() => void toggle(schedule)} disabled={busyId === schedule.id}>
@@ -200,7 +221,7 @@ export function SchedulePanel() {
                       onSelect={(id) => {
                         setMenuOpenId(null);
                         if (id === 'reschedule') {
-                          setEditing({ id: schedule.id, name: schedule.name, rrule: schedule.rrule });
+                          setEditing({ id: schedule.id, name: schedule.name, action: schedule.action, ...(schedule.topicCount ? { topicCount: schedule.topicCount } : {}), rrule: schedule.rrule });
                           setFormOpen(true);
                         } else if (id === 'runNow') {
                           void runNow(schedule);

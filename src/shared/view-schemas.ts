@@ -106,6 +106,8 @@ export const ScheduleViewModelSchema = z.strictObject({
   id: z.string(),
   revision: z.number().int().min(1),
   name: z.string(),
+  action: z.enum(['draft', 'article', 'topics']).default('draft'),
+  topicCount: z.number().int().min(1).max(10).optional(),
   rrule: z.string(),
   timeZone: z.string(),
   params: RunParamsSchema,
@@ -115,6 +117,20 @@ export const ScheduleViewModelSchema = z.strictObject({
   lastRunAt: z.string().optional(),
 });
 export type ScheduleViewModel = z.infer<typeof ScheduleViewModelSchema>;
+
+/** 定时选题产物（最近一批候选）。 */
+export const TopicCandidateViewSchema = z.strictObject({
+  id: z.string(),
+  batchId: z.string(),
+  scheduleId: z.string().optional(),
+  title: z.string(),
+  source: z.string(),
+  url: z.string(),
+  rank: z.number().int().min(1),
+  digest: z.string().optional(),
+  createdAt: z.string(),
+});
+export type TopicCandidateView = z.infer<typeof TopicCandidateViewSchema>;
 
 export const CredentialsDescriptorSchema = z.strictObject({
   configured: z.boolean(),
@@ -154,6 +170,7 @@ export const SnapshotResponseSchema = z.strictObject({
   articles: z.array(ArticleListItemSchema),
   runs: z.array(RunSummarySchema),
   schedules: z.array(ScheduleViewModelSchema),
+  topicCandidates: z.array(TopicCandidateViewSchema).default([]),
   config: ConfigViewSchema,
   serverNow: z.iso.datetime(),
   capabilities: CapabilitiesSchema,

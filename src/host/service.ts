@@ -1,9 +1,10 @@
 /** WeWriteService（架构 §3）：host 级唯一服务；写操作串行化。重活已拆 images/wechat-flow/articles-store/schedules-store/views。 */
 
 import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotDigestItem, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse } from '../shared/contract';
+import { randomUUID } from 'node:crypto';
 import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
-import { SettingsRecordSchema, type RunRecord } from './domain';
+import { SettingsRecordSchema, type RunRecord, type ScheduleAction, type ScheduleRecord, type TopicCandidateRecord } from './domain';
 import { rewriteSystemPrompt, rewriteUserPrompt, streamLlmText, type PipelineLlm } from './pipeline/llm';
 import { digestHotspotItem as runHotspotDigest } from './hotspot-digest';
 import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunStore } from './pipeline/engine';
@@ -104,7 +105,7 @@ export class WeWriteService {
       loadSchedules: async () => [...this.tables.schedules.entries()].map(([, record]) => record),
       saveSchedule: async (record) => this.tables.schedules.put(record.id, record),
       claim: (key) => this.claimOccurrence(key),
-      startRun: async (schedule) => this.startRun({ trigger: 'schedule', params: schedule.params, scheduleId: schedule.id }).runId,
+      startRun: async (schedule) => this.startScheduledRun(schedule),
       now: this.nowFn,
     });
   }
@@ -142,6 +143,7 @@ export class WeWriteService {
       articles: this.listArticles(),
       runs: this.listRuns(),
       schedules: [...this.tables.schedules.entries()].map(([, record]) => scheduleToView(record)),
+      topicCandidates: this.listTopicCandidates(),
       config: await this.getConfig(),
       serverNow: this.nowIso(),
       capabilities: { contractVersion: CONTRACT_VERSION, features: ['scheduler', 'images', 'hotspots', 'gates'] },
@@ -288,8 +290,103 @@ export class WeWriteService {
     return this.articles.preview(input);
   }
 
-  saveSchedule(input: { id?: string; name: string; rrule: string; timeZone: string; params: RunParams; enabled: boolean }): Promise<ScheduleViewModel> {
+  saveSchedule(input: { id?: string; name: string; action: ScheduleAction; topicCount?: number; rrule: string; timeZone: string; params: RunParams; enabled: boolean }): Promise<ScheduleViewModel> {
     return this.schedules.save(input);
+  }
+
+  /** 调度派发：topics 走热榜扫描；draft/article 走管线，draft 成功后自动推草稿箱。 */
+  private async startScheduledRun(schedule: ScheduleRecord): Promise<string> {
+    if (schedule.action === 'topics') {
+      await this.scanTopics(schedule);
+      return `scan_${schedule.id}`;
+    }
+    const { runId } = this.startRun({ trigger: 'schedule', params: schedule.params, scheduleId: schedule.id });
+    if (schedule.action === 'draft') void this.pushScheduledRun(runId);
+    return runId;
+  }
+
+  /** draft 任务：run 成功后自动推草稿箱；失败只记日志，文章保留可手动重推。 */
+  private async pushScheduledRun(runId: string): Promise<void> {
+    const run = await this.runCompletion(runId);
+    if (!run || run.status !== 'succeeded') return;
+    const articleId = run.articleId ?? this.findArticleIdByRun(runId);
+    if (!articleId) {
+      this.logger.warn(`定时推送跳过：run ${runId} 没有产出文章`);
+      return;
+    }
+    try {
+      await this.pushArticleDraft(articleId);
+      this.logger.info(`定时任务已推草稿箱（article ${articleId}）`);
+    } catch (error) {
+      this.logger.warn(truncateMessage(`定时推送失败（article ${articleId}）：${toServiceError(error).message}`));
+    }
+  }
+
+  private findArticleIdByRun(runId: string): string | undefined {
+    for (const [, article] of this.tables.articles.entries()) {
+      if (article.lastRunId === runId) return article.id;
+    }
+    return undefined;
+  }
+
+  /** topics 任务：抓热榜 + 逐条 AI 速览，保存最近一批候选（不写正文、不推送）。 */
+  private async scanTopics(schedule: ScheduleRecord): Promise<void> {
+    const count = schedule.topicCount ?? 3;
+    const items = await this.fetchHotspots(count);
+    const batchId = `batch_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const createdAt = this.nowIso();
+    const records: TopicCandidateRecord[] = [];
+    for (const item of items.slice(0, count)) {
+      let digest: string | undefined;
+      try {
+        const result = await this.digestHotspotItem({ rank: item.rank, title: item.title, url: item.url });
+        digest = result.digest;
+      } catch (error) {
+        this.logger.warn(truncateMessage(`定时选题速览失败（${item.title}）：${toServiceError(error).message}`));
+      }
+      records.push({
+        v: 1,
+        id: `tc_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+        batchId,
+        scheduleId: schedule.id,
+        title: item.title,
+        source: item.source,
+        url: item.url,
+        rank: item.rank,
+        ...(digest ? { digest } : {}),
+        createdAt,
+      });
+    }
+    await this.serialize(async () => {
+      for (const record of records) await this.tables.topicCandidates.put(record.id, record);
+      const ordered = [...this.tables.topicCandidates.entries()]
+        .map(([, record]) => record)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const keepBatches = new Set([...new Set(ordered.map((record) => record.batchId))].slice(0, 5));
+      for (const [id, record] of this.tables.topicCandidates.entries()) {
+        if (!keepBatches.has(record.batchId)) await this.tables.topicCandidates.delete(id);
+      }
+    });
+  }
+
+  /** 最近一批定时选题候选（选题页展示；无候选时为空数组）。 */
+  listTopicCandidates(): SnapshotResponse['topicCandidates'] {
+    const all = [...this.tables.topicCandidates.entries()].map(([, record]) => record);
+    const latestBatch = [...all].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.batchId;
+    return all
+      .filter((record) => record.batchId === latestBatch)
+      .sort((a, b) => a.rank - b.rank)
+      .map((record) => ({
+        id: record.id,
+        batchId: record.batchId,
+        ...(record.scheduleId ? { scheduleId: record.scheduleId } : {}),
+        title: record.title,
+        source: record.source,
+        url: record.url,
+        rank: record.rank,
+        ...(record.digest ? { digest: record.digest } : {}),
+        createdAt: record.createdAt,
+      }));
   }
 
   deleteSchedule(id: string): Promise<{ deleted: boolean }> { return this.schedules.delete(id); }

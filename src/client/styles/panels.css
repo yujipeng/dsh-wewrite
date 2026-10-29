@@ -343,3 +343,35 @@
 
 .ww-hotspot__digest-body > p { margin: 0; }
 
+/* ---------- 定时选题候选（选题页顶部） ---------- */
+
+.ww-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  margin-bottom: var(--ww-space-4);
+  padding: var(--ww-space-3);
+  border: var(--ww-border-width) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface-sunken);
+}
+
+.ww-candidates__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ww-space-3); }
+.ww-candidates__title { display: inline-flex; align-items: center; gap: var(--ww-space-2); font-size: var(--ww-text-sm); font-weight: var(--ww-weight-medium); }
+.ww-candidates__meta { font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); }
+.ww-candidates__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--ww-space-2); }
+
+.ww-candidate {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-2);
+  border-radius: var(--ww-radius-md);
+  background: var(--ww-surface);
+}
+.ww-candidate__rank { font-family: var(--ww-font-code); font-size: var(--ww-text-sm); color: var(--ww-fg-tertiary); min-width: 2.5em; }
+.ww-candidate__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ww-candidate__title { font-size: var(--ww-text-sm); color: var(--ww-fg); }
+.ww-candidate__meta { font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); }
+.ww-candidate__digest { margin: 2px 0 0; font-size: var(--ww-text-xs); color: var(--ww-fg-secondary); line-height: 1.55; }
+

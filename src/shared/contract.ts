@@ -158,6 +158,8 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
     request: z.strictObject({
       id: z.string().optional(),
       name: z.string().min(1),
+      action: z.enum(['draft', 'article', 'topics']).default('draft'),
+      topicCount: z.number().int().min(1).max(10).optional(),
       rrule: z.string().min(1),
       timeZone: TimeZoneSchema,
       params: RunParamsWithTopicSchema,
