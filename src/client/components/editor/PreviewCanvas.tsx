@@ -1,6 +1,7 @@
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
 import { useState } from 'react';
+import { THEME_OPTIONS } from '@/render/themes';
 import { Icon } from '../Icon';
 
 /**
@@ -13,11 +14,10 @@ import { Icon } from '../Icon';
  * - 缩放档 100/90/75%（v0.2 §1-7）：纯 CSS transform 视觉变换，载荷字节不变（AC-7）。
  */
 
-export const CANVAS_THEMES: ReadonlyArray<{ id: string; label: string }> = [
-  { id: 'professional-clean', label: '经典蓝 · professional-clean' },
-  { id: 'reader-serif', label: '暖宋 · reader-serif' },
-  { id: 'compact-mono', label: '紧凑灰 · compact-mono' },
-];
+export const CANVAS_THEMES: ReadonlyArray<{ id: string; label: string }> = THEME_OPTIONS.map((item) => ({
+  id: item.id,
+  label: `${item.label} · ${item.id}`,
+}));
 
 export const ZOOM_LEVELS: ReadonlyArray<{ id: string; label: string; value: number }> = [
   { id: '100', label: '100%', value: 1 },
