@@ -311,7 +311,9 @@
 }
 
 .ww-textarea {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   min-height: 64px;
   resize: vertical;
   padding: var(--ww-space-2) var(--ww-space-3);
