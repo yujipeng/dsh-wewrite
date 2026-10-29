@@ -73,7 +73,7 @@ export function openTables(domain: StorageDomainHandle): DomainTables {
     articles: typedTable<ArticleRecord>(domain, 'articles'),
     runs: typedTable<RunRecord>(domain, 'runs'),
     schedules: typedTable<ScheduleRecord>(domain, 'schedules'),
-    topicCandidates: typedTable<TopicCandidateRecord>(domain, 'topicCandidates'),
+    topicCandidates: typedTable<TopicCandidateRecord>(domain, 'topic_candidates'),
     images: typedTable<ImageRecord>(domain, 'images'),
     domain,
   };

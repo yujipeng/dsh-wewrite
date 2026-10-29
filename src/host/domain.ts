@@ -178,7 +178,7 @@ export const domainSpec = {
     articles: { valueSchema: ArticleRecordSchema },
     runs: { valueSchema: RunRecordSchema },
     schedules: { valueSchema: ScheduleRecordSchema },
-    topicCandidates: { valueSchema: TopicCandidateRecordSchema },
+    topic_candidates: { valueSchema: TopicCandidateRecordSchema },
     images: { valueSchema: ImageRecordSchema },
   },
 } as const;
