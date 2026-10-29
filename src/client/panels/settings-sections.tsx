@@ -178,7 +178,7 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
             <span className="ww-field__label">主题方向 <span className="ww-field__hint">每行一条</span></span>
             <textarea
               className="ww-textarea"
-              rows={3}
+              rows={Math.min(8, Math.max(3, topicsText.split('\n').length))}
               value={topicsText}
               onChange={(event) => setTopicsText(event.target.value)}
               placeholder={'社会热点背后的心理机制\n人际关系与边界感'}
@@ -190,7 +190,7 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
               <span className="ww-field__label">禁用词 <span className="ww-field__hint">每行一条</span></span>
               <textarea
                 className="ww-textarea"
-                rows={2}
+                rows={Math.min(6, Math.max(2, blacklistWordsText.split('\n').length))}
                 value={blacklistWordsText}
                 onChange={(event) => setBlacklistWordsText(event.target.value)}
                 placeholder={'震惊\n必看'}
@@ -201,7 +201,7 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
               <span className="ww-field__label">不写的话题 <span className="ww-field__hint">每行一条</span></span>
               <textarea
                 className="ww-textarea"
-                rows={2}
+                rows={Math.min(6, Math.max(2, blacklistTopicsText.split('\n').length))}
                 value={blacklistTopicsText}
                 onChange={(event) => setBlacklistTopicsText(event.target.value)}
                 placeholder={'诊断他人精神疾病\n政治敏感'}
