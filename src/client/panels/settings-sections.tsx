@@ -174,42 +174,40 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
 
         <section className="ww-writing-profile__group">
           <h4 className="ww-writing-profile__group-title">主题与禁忌</h4>
-          <div className="ww-grid-2 ww-writing-profile__wide-left">
+          <label className="ww-field">
+            <span className="ww-field__label">主题方向 <span className="ww-field__hint">每行一条</span></span>
+            <textarea
+              className="ww-textarea"
+              rows={3}
+              value={topicsText}
+              onChange={(event) => setTopicsText(event.target.value)}
+              placeholder={'社会热点背后的心理机制\n人际关系与边界感'}
+              aria-label="主题方向"
+            />
+          </label>
+          <div className="ww-grid-2">
             <label className="ww-field">
-              <span className="ww-field__label">主题方向 <span className="ww-field__hint">每行一条</span></span>
+              <span className="ww-field__label">禁用词 <span className="ww-field__hint">每行一条</span></span>
               <textarea
                 className="ww-textarea"
-                rows={4}
-                value={topicsText}
-                onChange={(event) => setTopicsText(event.target.value)}
-                placeholder={'社会热点背后的心理机制\n人际关系与边界感'}
-                aria-label="主题方向"
+                rows={2}
+                value={blacklistWordsText}
+                onChange={(event) => setBlacklistWordsText(event.target.value)}
+                placeholder={'震惊\n必看'}
+                aria-label="禁用词"
               />
             </label>
-            <div className="ww-writing-profile__stack">
-              <label className="ww-field">
-                <span className="ww-field__label">禁用词 <span className="ww-field__hint">每行一条</span></span>
-                <textarea
-                  className="ww-textarea"
-                  rows={2}
-                  value={blacklistWordsText}
-                  onChange={(event) => setBlacklistWordsText(event.target.value)}
-                  placeholder={'震惊\n必看'}
-                  aria-label="禁用词"
-                />
-              </label>
-              <label className="ww-field">
-                <span className="ww-field__label">不写的话题 <span className="ww-field__hint">每行一条</span></span>
-                <textarea
-                  className="ww-textarea"
-                  rows={2}
-                  value={blacklistTopicsText}
-                  onChange={(event) => setBlacklistTopicsText(event.target.value)}
-                  placeholder={'诊断他人精神疾病\n政治敏感'}
-                  aria-label="不写的话题"
-                />
-              </label>
-            </div>
+            <label className="ww-field">
+              <span className="ww-field__label">不写的话题 <span className="ww-field__hint">每行一条</span></span>
+              <textarea
+                className="ww-textarea"
+                rows={2}
+                value={blacklistTopicsText}
+                onChange={(event) => setBlacklistTopicsText(event.target.value)}
+                placeholder={'诊断他人精神疾病\n政治敏感'}
+                aria-label="不写的话题"
+              />
+            </label>
           </div>
         </section>
 
