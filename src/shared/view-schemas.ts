@@ -247,6 +247,8 @@ export const ConfigSettingsViewSchema = z.strictObject({
       threshold: z.number().min(0).max(5).optional(),
     })
     .optional(),
+  imageCostPerImage: z.number().min(0).optional(),
+  maxImageCost: z.number().min(0).optional(),
 });
 export type ConfigSettingsView = z.infer<typeof ConfigSettingsViewSchema>;
 

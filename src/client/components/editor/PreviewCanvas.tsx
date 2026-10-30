@@ -2,6 +2,7 @@ import { Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
 import { useMemo, useState } from 'react';
 import { THEME_OPTIONS } from '@/render/themes';
+import { ARTICLE_VARIANT_LABELS, type ArticleVariant } from '@/shared/article-variants';
 import { resolvePreviewImages } from '../../lib/preview-images';
 import { Icon } from '../Icon';
 
@@ -38,6 +39,8 @@ export function PreviewCanvas({
   onZoomChange,
   coverUrl,
   bodyImageUrls,
+  variant,
+  onVariantChange,
 }: {
   html: string | undefined;
   rendering: boolean;
@@ -49,11 +52,18 @@ export function PreviewCanvas({
   onZoomChange: (zoom: number) => void;
   coverUrl?: string;
   bodyImageUrls?: readonly string[];
+  variant: ArticleVariant;
+  onVariantChange: (variant: ArticleVariant) => void;
 }) {
   const themeEntries: MenuEntry[] = CANVAS_THEMES.map((item) => ({ id: item.id, label: item.label }));
   const zoomEntries: MenuEntry[] = ZOOM_LEVELS.map((item) => ({ id: item.id, label: item.label }));
+  const variantEntries: MenuEntry[] = (['body', 'layout', 'publish'] as const).map((id) => ({
+    id,
+    label: ARTICLE_VARIANT_LABELS[id],
+  }));
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const [variantMenuOpen, setVariantMenuOpen] = useState(false);
   const zoomId = String(Math.round(zoom * 100));
   const resolvedHtml = useMemo(
     () => (html === undefined ? undefined : resolvePreviewImages(html, bodyImageUrls ?? [])),
@@ -67,6 +77,31 @@ export function PreviewCanvas({
           <Icon name="smartphone" size={16} /> 微信预览
         </span>
         <div className="ww-preview__controls">
+          <Menu
+            open={variantMenuOpen}
+            anchor={
+              <button
+                type="button"
+                className="ww-preview__theme ww-preview__variant"
+                aria-label="切换稿件视图"
+                aria-expanded={variantMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setVariantMenuOpen((open) => !open)}
+              >
+                <Icon name="file-pen" size={16} />
+                <span className="ww-preview__theme-name ww-preview__variant-name">{ARTICLE_VARIANT_LABELS[variant]}</span>
+                <Icon name="chevron-down" size={16} />
+              </button>
+            }
+            items={variantEntries}
+            selectedId={variant}
+            onSelect={(id) => {
+              setVariantMenuOpen(false);
+              onVariantChange(id as ArticleVariant);
+            }}
+            onClose={() => setVariantMenuOpen(false)}
+            align="end"
+          />
           <Menu
             open={zoomMenuOpen}
             anchor={

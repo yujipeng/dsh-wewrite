@@ -11,6 +11,9 @@ import type { ImagesGenerator } from './pipeline/engine';
 import { runImageFallback } from './providers/registry';
 import { chooseProviderSize } from './providers/capabilities';
 import { processForWeChat } from './images/postprocess';
+import { buildFallbackImagePlan, composeImagePrompt, type ImagePromptPlan } from './images/plan';
+import { shouldSkipImages } from './images/cost';
+import { verifyImage } from './images/verify';
 import type { ImageGenRequest, ImageProvider, ImageSize, ResolvedProviderConfig } from './providers/types';
 import { createAzureOpenAiProvider } from './providers/azure-openai';
 import { createDoubaoProvider } from './providers/doubao';
@@ -41,6 +44,12 @@ export interface ImagesGeneratorDeps {
   readonly persist: (records: readonly ImageRecord[]) => Promise<void>;
   /** 传输层注入（测试路由 / 出口代理），缺省走全局 fetch。 */
   readonly fetchImpl?: typeof fetch;
+  /** I-18：基于正文生成配图提示词清单；失败/未配置返回 undefined（降级固定模板）。 */
+  readonly planPrompts?: (input: {
+    topic?: string;
+    markdown?: string;
+    count: number;
+  }) => Promise<ImagePromptPlan | undefined>;
 }
 
 /** 微信封面 2.35:1；正文 16:9（I-02 目标尺寸，1280 宽已满足封面 900×383 建议）。 */
@@ -51,8 +60,17 @@ const BODY_SIZE: ImageSize = '1280x720';
 
 export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerator {
   return {
-    generate: async ({ count, articleId }) => {
+    generate: async ({ count, articleId, topic, markdown }) => {
       const settings = deps.getSettings();
+      // I-20：成本预估超上限则跳过配图（未配置单价/上限时不限制）。
+      const budget = shouldSkipImages(count, settings);
+      if (budget.skip) {
+        return {
+          bodyImageIds: [],
+          skipped: budget.reason ?? 'cost-limit',
+          estimatedCost: budget.estimated,
+        };
+      }
       const chain = settings.imageProviders.length
         ? settings.imageProviders
         : DEFAULT_IMAGE_PROVIDER_CHAIN.map((providerId): ImageProviderConfig => ({
@@ -78,52 +96,69 @@ export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerato
       const resolveConfig = (providerId: ImageProviderId): ResolvedProviderConfig =>
         configs.get(providerId) ?? { apiKey: '' };
 
+      // I-18：一次 LLM 产出视觉系统 + 封面/正文 prompt；失败降级固定模板。
+      const plan = (await deps.planPrompts?.({
+        ...(topic ? { topic } : {}),
+        ...(markdown ? { markdown } : {}),
+        count,
+      }).catch(() => undefined)) ?? buildFallbackImagePlan(count);
+
       const make = async (
         prompt: string,
         kind: 'cover' | 'body',
         target: { width: number; height: number },
         targetSize: ImageSize,
       ): Promise<ImageRecord> => {
-        const req: ImageGenRequest = { prompt, size: targetSize, n: 1 };
-        const outcome = await runImageFallback(providers, resolveConfig, req, (providerId) =>
-          chooseProviderSize(providerId, targetSize),
-        );
-        const image = outcome.result.images[0];
-        // I-02/I-03：裁剪到微信目标比例 + 压缩到 <1MB；sharp 不可用时原样返回，预检兜底。
-        const processed = await processForWeChat(
-          image?.buffer ?? Buffer.alloc(0),
-          image?.mime ?? 'image/png',
-          target,
-        );
-        return {
-          v: 1,
-          id: `img_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
-          // P0-1：真实文章 id 溯源（render 步落库后回传；无绑定场景兜底占位）
-          articleId: articleId ?? 'pending',
-          kind,
-          mime: processed.mime,
-          base64: processed.buffer.toString('base64'),
-          provider: outcome.providerId,
-          model: outcome.result.model,
-          prompt,
-          bytes: processed.bytes,
-          ...(processed.width > 0 ? { width: processed.width } : {}),
-          ...(processed.height > 0 ? { height: processed.height } : {}),
-          compressed: processed.compressed,
-          createdAt: deps.now().toISOString(),
-        };
+        let lastIssues: readonly string[] = [];
+        // I-19：量化验图；不达标自动重试一次，仍失败则抛出（images 步降级为无图推进）。
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const req: ImageGenRequest = { prompt, size: targetSize, n: 1 };
+          const outcome = await runImageFallback(providers, resolveConfig, req, (providerId) =>
+            chooseProviderSize(providerId, targetSize),
+          );
+          const image = outcome.result.images[0];
+          // I-02/I-03：裁剪到微信目标比例 + 压缩到 <1MB；sharp 不可用时原样返回，预检兜底。
+          const processed = await processForWeChat(
+            image?.buffer ?? Buffer.alloc(0),
+            image?.mime ?? 'image/png',
+            target,
+          );
+          const verified = await verifyImage(processed.buffer, kind);
+          if (!verified.ok) {
+            lastIssues = verified.issues;
+            continue;
+          }
+          return {
+            v: 1,
+            id: `img_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+            // P0-1：真实文章 id 溯源（render 步落库后回传；无绑定场景兜底占位）
+            articleId: articleId ?? 'pending',
+            kind,
+            mime: processed.mime,
+            base64: processed.buffer.toString('base64'),
+            provider: outcome.providerId,
+            model: outcome.result.model,
+            prompt,
+            bytes: processed.bytes,
+            ...(processed.width > 0 ? { width: processed.width } : {}),
+            ...(processed.height > 0 ? { height: processed.height } : {}),
+            compressed: processed.compressed,
+            createdAt: deps.now().toISOString(),
+          };
+        }
+        throw new Error(`图片校验未通过：${lastIssues.slice(0, 3).join('；') || '未知原因'}`);
       };
 
-      const cover = await make('为文章生成封面图：风格克制、信息密度高，深色纯色背景，无文字水印', 'cover', COVER_TARGET, COVER_SIZE);
+      const cover = await make(composeImagePrompt(plan, 'cover'), 'cover', COVER_TARGET, COVER_SIZE);
       const bodies: ImageRecord[] = [];
       for (let index = 0; index < count; index += 1) {
         bodies.push(
-          await make(`正文配图 ${index + 1}：克制的信息图风格，单主题，无文字水印`, 'body', BODY_TARGET, BODY_SIZE),
+          await make(composeImagePrompt(plan, 'body', index), 'body', BODY_TARGET, BODY_SIZE),
         );
       }
       const stored = [cover, ...bodies];
       await deps.persist(stored);
-      return { coverImageId: stored[0].id, bodyImageIds: bodies.map((record) => record.id) };
+      return { coverImageId: stored[0].id, bodyImageIds: bodies.map((record) => record.id), plan };
     },
   };
 }

@@ -41,6 +41,9 @@ export const SettingsRecordSchema = z.strictObject({
       threshold: z.number().min(0).max(5).optional(),
     })
     .optional(),
+  /** I-20：配图单价与总预算上限（缺省不限制）。 */
+  imageCostPerImage: z.number().min(0).optional(),
+  maxImageCost: z.number().min(0).optional(),
 });
 export type SettingsRecord = z.infer<typeof SettingsRecordSchema>;
 

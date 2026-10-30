@@ -112,3 +112,79 @@ describe('空输入与边界', () => {
     expect(html.length).toBeGreaterThan(long.length * 0.9);
   });
 });
+
+describe('I-15 ::: 容器语法', () => {
+  const containerMd = [
+    ':::steps',
+    '1. 第一步：算清固定成本',
+    '- 第二步：算保本杯数',
+    ':::',
+    '',
+    ':::summary',
+    '一句话总结。',
+    ':::',
+    '',
+    ':::highlight',
+    '**重点**：别忘记房租。',
+    ':::',
+  ].join('\n');
+
+  it.each(['professional-clean', 'tech-dark', 'minimal-gray'])(
+    '三种容器在 %s 主题渲染为内联 section',
+    (theme) => {
+      const html = convertArticle({ markdown: containerMd, theme });
+      expect(html).toContain('第一步');
+      expect(html).toContain('一句话总结');
+      expect(html).toContain('别忘记房租');
+      expect(html).toContain('display: flex');
+      expect(html).not.toContain(':::');
+    },
+  );
+
+  it('steps 内有序列表不产生 <ol>，由容器自动编号', () => {
+    const html = convertArticle({
+      markdown: ':::steps\n1. 第一步\n2. 第二步\n:::',
+      theme: 'professional-clean',
+    });
+    expect(html).not.toContain('<ol');
+    expect(html).toContain('第一步');
+    expect(html).toContain('>1</span>');
+    expect(html).toContain('>2</span>');
+  });
+
+  it('未闭合容器不报错，保留原始标记与内容', () => {
+    const html = convertArticle({ markdown: ':::steps\n1. 第一步', theme: 'professional-clean' });
+    expect(html).toContain(':::steps');
+    expect(html).toContain('第一步');
+  });
+});
+
+describe('I-16 图注后处理', () => {
+  it('图片 + 紧随的纯斜体段落 → 图注样式', () => {
+    const html = convertArticle({
+      markdown: '![图](https://img.example.test/a.png)\n\n*这是图注*',
+      theme: 'professional-clean',
+    });
+    expect(html).toContain('这是图注');
+    expect(html).toContain('letter-spacing: 0.5px');
+    expect(html).toContain('margin: 36px 0 6px');
+  });
+
+  it('非纯斜体段落不误判为图注', () => {
+    const html = convertArticle({
+      markdown: '![图](https://img.example.test/a.png)\n\n这是 *强调* 段落',
+      theme: 'professional-clean',
+    });
+    expect(html).toContain('强调');
+    expect(html).not.toContain('letter-spacing: 0.5px');
+  });
+
+  it('无图注时图片输出保持原样', () => {
+    const html = convertArticle({
+      markdown: '![图](https://img.example.test/a.png)\n\n普通段落',
+      theme: 'professional-clean',
+    });
+    expect(html).toContain('<img');
+    expect(html).not.toContain('letter-spacing: 0.5px');
+  });
+});

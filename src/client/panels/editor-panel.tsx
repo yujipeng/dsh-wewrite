@@ -238,6 +238,8 @@ export function EditorPanel({
             onZoomChange={setZoom}
             coverUrl={coverUrl}
             bodyImageUrls={bodyImageUrls}
+            variant={doc.variant}
+            onVariantChange={doc.setVariant}
           />
         ) : null}
       </div>

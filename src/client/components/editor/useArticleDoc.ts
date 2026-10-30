@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ArticleDetail } from '@/shared/contract';
+import { deriveArticleVariants, type ArticleVariant } from '@/shared/article-variants';
 import type { WewriteRpc } from '../../lib/rpc';
 
 /**
@@ -23,6 +24,7 @@ export function useArticleDoc(rpc: WewriteRpc, articleId: string) {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [previewHtml, setPreviewHtml] = useState<string | undefined>();
   const [previewing, setPreviewing] = useState(false);
+  const [variant, setVariant] = useState<ArticleVariant>('layout');
 
   useEffect(() => {
     let alive = true;
@@ -73,13 +75,15 @@ export function useArticleDoc(rpc: WewriteRpc, articleId: string) {
   }, [markdown, theme, article, rpc]);
 
   // 预览：300ms 防抖 + 上一次请求中止（<1s 本地刷新口径不变）。
+  // I-17：正文稿用去容器标记的派生 Markdown；排版/发布稿用原文（发布图 URL 在预览层替换）。
   useEffect(() => {
     if (!article) return;
     const controller = new AbortController();
+    const previewMarkdown = variant === 'body' ? deriveArticleVariants(markdown).body : markdown;
     const timer = window.setTimeout(() => {
       setPreviewing(true);
       rpc
-        .call<{ html: string }>('article/preview', { markdown, theme }, controller.signal)
+        .call<{ html: string }>('article/preview', { markdown: previewMarkdown, theme }, controller.signal)
         .then((result) => setPreviewHtml(result.html))
         .catch(() => undefined)
         .finally(() => setPreviewing(false));
@@ -88,7 +92,7 @@ export function useArticleDoc(rpc: WewriteRpc, articleId: string) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [article, markdown, theme, rpc]);
+  }, [article, markdown, theme, rpc, variant]);
 
   return {
     article,
@@ -103,5 +107,7 @@ export function useArticleDoc(rpc: WewriteRpc, articleId: string) {
     setSaveState,
     previewHtml,
     previewing,
+    variant,
+    setVariant,
   };
 }

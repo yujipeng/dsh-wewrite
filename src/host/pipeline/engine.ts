@@ -11,6 +11,7 @@ import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type PipelineLlm } from './llm';
 import { isSourceUrlVisible } from './steps/gates';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
+import type { ImagePromptPlan } from '../images/plan';
 
 export type { LlmStreamOptions, PipelineLlm, PipelineLlmChunk } from './llm';
 
@@ -45,7 +46,18 @@ export interface Renderer {
 
 export interface ImagesGenerator {
   /** articleId 为 render 步落库的文章 id（供 ImageRecord 溯源与回绑）。 */
-  generate(input: { count: number; articleId?: string }): Promise<{ coverImageId?: string; bodyImageIds: string[] }>;
+  generate(input: {
+    count: number;
+    articleId?: string;
+    topic?: string;
+    markdown?: string;
+  }): Promise<{
+    coverImageId?: string;
+    bodyImageIds: string[];
+    plan?: ImagePromptPlan;
+    skipped?: string;
+    estimatedCost?: number;
+  }>;
 }
 
 export interface PipelineDeps {
@@ -218,7 +230,13 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     let reviewMechanisms: string[] | undefined;
     let runStatus: 'succeeded' | 'failed' | 'cancelled' = 'succeeded';
     let runError: { code: string; message: string } | undefined;
-    let imagesResult: { coverImageId?: string; bodyImageIds: string[] } | undefined;
+    let imagesResult: {
+      coverImageId?: string;
+      bodyImageIds: string[];
+      plan?: ImagePromptPlan;
+      skipped?: string;
+      estimatedCost?: number;
+    } | undefined;
 
     const finishRun = (status: RunRecord['status'], error?: { code: string; message: string }) => {
       deps.store.update(runId, (run) => ({
@@ -449,11 +467,16 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             imagesResult = await deps.images.generate({
               count,
               ...(producedArticleId ? { articleId: producedArticleId } : {}),
+              ...(topic ? { topic } : {}),
+              markdown: draft,
             });
             patchStep(runId, stepName, {
               metrics: {
                 coverImageId: imagesResult.coverImageId,
                 bodyImageCount: imagesResult.bodyImageIds.length,
+                ...(imagesResult.plan ? { plan: imagesResult.plan } : {}),
+                ...(imagesResult.skipped ? { skipped: imagesResult.skipped } : {}),
+                ...(imagesResult.estimatedCost !== undefined ? { estimatedCost: imagesResult.estimatedCost } : {}),
               },
             });
             if (producedArticleId && deps.onImagesBound && (imagesResult.coverImageId || imagesResult.bodyImageIds.length)) {

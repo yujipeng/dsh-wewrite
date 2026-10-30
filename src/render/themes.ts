@@ -28,6 +28,14 @@ export interface RenderTheme {
   readonly li: string;
   readonly hr: string;
   readonly img: string;
+  /** I-16：图注样式（图片后的纯斜体说明）。 */
+  readonly imgCaption?: string;
+  /** I-15：`:::` 容器样式（未覆盖时用默认纯色样式）。 */
+  readonly containerSteps?: string;
+  readonly containerSummary?: string;
+  readonly containerHighlight?: string;
+  readonly containerStepNum?: string;
+  readonly containerStepText?: string;
 }
 
 const BASE_FONT =
@@ -56,6 +64,12 @@ const professionalClean: RenderTheme = {
   li: 'margin: 4px 0;',
   hr: 'border: none; border-top: 1px solid #eee; margin: 20px 0;',
   img: 'max-width: 100%; height: auto; display: block; margin: 16px auto; border-radius: 4px;',
+  imgCaption: 'margin: 0 0 16px; text-align: center; font-size: 13px; color: #888; letter-spacing: 0.5px;',
+  containerSteps: 'background: #f7f8fa; border-left: 3px solid #576b95; padding: 12px 16px; margin: 16px 0; border-radius: 4px;',
+  containerSummary: 'background: #f7f8fa; border: 1px solid #e5e7eb; padding: 14px 16px; margin: 16px 0; border-radius: 6px;',
+  containerHighlight: 'background: #fff8e6; border-left: 3px solid #f0b429; padding: 12px 16px; margin: 16px 0; border-radius: 4px;',
+  containerStepNum: 'display: inline-flex; width: 20px; height: 20px; border-radius: 10px; background: #576b95; color: #fff; font-size: 12px; align-items: center; justify-content: center; margin-right: 8px; flex: none;',
+  containerStepText: 'flex: 1; min-width: 0;',
 };
 
 const techDark: RenderTheme = {
@@ -126,6 +140,12 @@ function paletteTheme(input: {
     li: 'margin: 4px 0;',
     hr: `border: none; border-top: 1px solid ${input.quoteBorder}; margin: 20px 0;`,
     img: 'max-width: 100%; height: auto; display: block; margin: 16px auto; border-radius: 4px;',
+    imgCaption: `margin: 0 0 16px; text-align: center; font-size: 13px; color: ${input.text}; opacity: 0.7; letter-spacing: 0.5px;`,
+    containerSteps: `background: ${input.quoteBg}; border-left: 3px solid ${input.accent}; padding: 12px 16px; margin: 16px 0; border-radius: 4px;`,
+    containerSummary: `background: ${input.quoteBg}; border: 1px solid ${input.quoteBorder}; padding: 14px 16px; margin: 16px 0; border-radius: 6px;`,
+    containerHighlight: `background: ${input.quoteBg}; border-left: 3px solid ${input.accent}; padding: 12px 16px; margin: 16px 0; border-radius: 4px;`,
+    containerStepNum: `display: inline-flex; width: 20px; height: 20px; border-radius: 10px; background: ${input.accent}; color: #fff; font-size: 12px; align-items: center; justify-content: center; margin-right: 8px; flex: none;`,
+    containerStepText: 'flex: 1; min-width: 0;',
   };
 }
 

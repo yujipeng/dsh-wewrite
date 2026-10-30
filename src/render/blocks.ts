@@ -11,6 +11,81 @@ import { mergeAdjacentBlockquotes, repairListInterrupts, splitDetachedTails, typ
 import type { RenderTheme } from './themes';
 
 const PIPE_SENTINEL = '\uE000';
+/** I-15：`:::` 容器占位符（预处理替换，渲染后还原）。 */
+const CONTAINER_TOKEN = '\uE001C';
+const CONTAINER_TOKEN_END = '\uE002';
+const CONTAINER_START = /^:::(steps|summary|highlight)\s*$/;
+const CONTAINER_END = /^:::\s*$/;
+
+type ContainerName = 'steps' | 'summary' | 'highlight';
+
+interface ContainerBlock {
+  readonly name: ContainerName;
+  readonly content: string;
+}
+
+const DEFAULT_CONTAINER_STEPS =
+  'background: #f7f8fa; border-left: 3px solid #576b95; padding: 12px 16px; margin: 16px 0; border-radius: 4px;';
+const DEFAULT_CONTAINER_SUMMARY =
+  'background: #f7f8fa; border: 1px solid #e5e7eb; padding: 14px 16px; margin: 16px 0; border-radius: 6px;';
+const DEFAULT_CONTAINER_HIGHLIGHT =
+  'background: #fff8e6; border-left: 3px solid #f0b429; padding: 12px 16px; margin: 16px 0; border-radius: 4px;';
+const DEFAULT_CONTAINER_STEP_NUM =
+  'display: inline-flex; width: 20px; height: 20px; border-radius: 10px; background: #576b95; color: #fff; font-size: 12px; align-items: center; justify-content: center; margin-right: 8px; flex: none;';
+const DEFAULT_CONTAINER_STEP_TEXT = 'flex: 1; min-width: 0;';
+
+/** 提取 `:::steps|summary|highlight ... :::` 块；未闭合块原样保留（不报错）。 */
+function extractContainers(markdown: string): { markdown: string; containers: ContainerBlock[] } {
+  const lines = markdown.split('\n');
+  const output: string[] = [];
+  const containers: ContainerBlock[] = [];
+  let open: { name: ContainerName; lines: string[] } | null = null;
+
+  for (const line of lines) {
+    if (!open) {
+      const start = line.match(CONTAINER_START);
+      if (start) {
+        open = { name: start[1] as ContainerName, lines: [] };
+        continue;
+      }
+      output.push(line);
+      continue;
+    }
+    if (CONTAINER_END.test(line)) {
+      containers.push({ name: open.name, content: open.lines.join('\n') });
+      output.push(`${CONTAINER_TOKEN}${containers.length - 1}${CONTAINER_TOKEN_END}`);
+      open = null;
+      continue;
+    }
+    open.lines.push(line);
+  }
+  if (open) {
+    // 未闭合：还原原始标记，走普通 Markdown 路径（不静默吞内容）。
+    output.push(`:::${open.name}`, ...open.lines);
+  }
+  return { markdown: output.join('\n'), containers };
+}
+
+function renderContainer(block: ContainerBlock, theme: RenderTheme): string {
+  if (block.name === 'steps') {
+    const rows = block.content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.replace(/^(?:[-*+]|\d+[.)])\s+/, ''));
+    const html = rows
+      .map(
+        (text, index) =>
+          `<section style="display: flex; align-items: flex-start; margin: 6px 0;"><span style="${theme.containerStepNum ?? DEFAULT_CONTAINER_STEP_NUM}">${index + 1}</span><span style="${theme.containerStepText ?? DEFAULT_CONTAINER_STEP_TEXT}">${pythonInlineToHtml(text, theme)}</span></section>`,
+      )
+      .join('\n');
+    return `<section style="${theme.containerSteps ?? DEFAULT_CONTAINER_STEPS}">\n${html}\n</section>`;
+  }
+  const style = block.name === 'summary'
+    ? theme.containerSummary ?? DEFAULT_CONTAINER_SUMMARY
+    : theme.containerHighlight ?? DEFAULT_CONTAINER_HIGHLIGHT;
+  return `<section style="${style}">\n${renderMarkdownBody(block.content, theme)}\n</section>`;
+}
 const ALIGN_STYLE: Readonly<Record<string, string>> = {
   left: 'text-align: left;',
   center: 'text-align: center;',
@@ -86,7 +161,30 @@ function renderBlock(token: LooseToken, theme: RenderTheme): string {
 }
 
 function renderBlocks(tokens: LooseToken[], theme: RenderTheme): string[] {
-  return tokens.map((token) => renderBlock(token, theme)).filter((block) => block !== '');
+  const blocks = tokens.map((token) => renderBlock(token, theme)).filter((block) => block !== '');
+  return decorateFigureCaptions(blocks, theme);
+}
+
+// I-16：图片段落 + 紧随的纯斜体段落 → 图注样式；非纯斜体不误判。
+const IMAGE_ONLY_PARAGRAPH = /^<p style="[^"]*">(<img\b[\s\S]*?)<\/p>$/;
+const CAPTION_ONLY_PARAGRAPH = /^<p style="[^"]*"><em style="[^"]*">([\s\S]*?)<\/em><\/p>$/;
+const DEFAULT_IMG_CAPTION =
+  'margin: 0 0 16px; text-align: center; font-size: 13px; color: #888; letter-spacing: 0.5px;';
+
+function decorateFigureCaptions(blocks: string[], theme: RenderTheme): string[] {
+  const output: string[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const image = blocks[index].match(IMAGE_ONLY_PARAGRAPH);
+    const caption = blocks[index + 1]?.match(CAPTION_ONLY_PARAGRAPH);
+    if (image && caption) {
+      output.push(`<section style="margin: 36px 0 6px; text-align: center;">${image[1]}</section>`);
+      output.push(`<p style="${theme.imgCaption ?? DEFAULT_IMG_CAPTION}">${caption[1]}</p>`);
+      index += 1;
+      continue;
+    }
+    output.push(blocks[index]);
+  }
+  return output;
 }
 
 function renderList(token: LooseToken, theme: RenderTheme): string {
@@ -201,9 +299,10 @@ function mergeStyle(baseStyle: string, align: string | null | undefined): string
   return ` style="${alignStyle ? `${baseStyle} ${alignStyle}` : baseStyle}"`;
 }
 
-/** Markdown → 微信正文 HTML 片段（管道哨兵处理 + 分词 + 修复链 + 渲染）。 */
+/** Markdown → 微信正文 HTML 片段（管道哨兵处理 + 容器提取 + 分词 + 修复链 + 渲染）。 */
 export function renderMarkdownBody(markdownText: string, theme: RenderTheme): string {
-  const prepared = markdownText
+  const { markdown: withoutContainers, containers } = extractContainers(markdownText);
+  const prepared = withoutContainers
     .split('\n')
     .map((line) => {
       if (!line.startsWith('|')) return line;
@@ -214,5 +313,13 @@ export function renderMarkdownBody(markdownText: string, theme: RenderTheme): st
     .join('\n');
   const tokens = marked.lexer(prepared, { gfm: true, breaks: true }) as unknown as LooseToken[];
   const repaired = splitDetachedTails(mergeAdjacentBlockquotes(repairListInterrupts(tokens)));
-  return renderBlocks(repaired, theme).join('\n');
+  const html = renderBlocks(repaired, theme).join('\n');
+  if (!containers.length) return html;
+  const replaceContainer = (whole: string, index: string): string => {
+    const block = containers[Number(index)];
+    return block ? renderContainer(block, theme) : whole;
+  };
+  return html
+    .replace(/<p[^>]*>\uE001C(\d+)\uE002<\/p>/g, replaceContainer)
+    .replace(/\uE001C(\d+)\uE002/g, replaceContainer);
 }

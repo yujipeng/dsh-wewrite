@@ -19,6 +19,7 @@ import { createCallRunBindings, type CallRunBindings } from './call-run-bindings
 import { createSchedulerService } from './scheduler/service';
 import { createDomainRunStore, openTables, parseGlobalState, type DomainTables, type GlobalState } from './store';
 import { createImagesGenerator } from './images';
+import { generateImagePlan } from './images/plan';
 import { ArticleStore } from './articles-store';
 import { ScheduleStore } from './schedules-store';
 import { diagnoseWeChat, pushArticleDraft, type PushArticleResult, type WeChatFlowDeps } from './wechat-flow';
@@ -56,6 +57,8 @@ const SUGGEST_HOTSPOT_LIMIT = 30;
 const MAX_CONCURRENT_RUNS = 1;
 /** 编辑评审单次 LLM 调用上限（I-12；失败降级为仅规则门禁）。 */
 const REVIEW_TIMEOUT_MS = 45_000;
+/** I-18：配图提示词清单单次 LLM 调用上限（失败降级固定模板）。 */
+const IMAGE_PLAN_TIMEOUT_MS = 45_000;
 
 export class WeWriteService {
   private readonly tables: DomainTables;
@@ -110,6 +113,17 @@ export class WeWriteService {
         resolveCredential: (ref) => Promise.resolve(deps.credentials.resolve(ref)).then(unwrapCredential),
         now: this.nowFn,
         ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+        planPrompts: ({ topic, markdown, count }) =>
+          generateImagePlan(
+            {
+              llm: this.deps.llm as unknown as PipelineLlm,
+              provider: this.state.settings.llmDefault.provider,
+              model: this.state.settings.llmDefault.model,
+              timeoutMs: IMAGE_PLAN_TIMEOUT_MS,
+              logger: this.logger,
+            },
+            { ...(topic ? { topic } : {}), markdown: markdown ?? '', count },
+          ),
         persist: async (records) => {
           for (const record of records) await this.tables.images.put(record.id, record);
         },
