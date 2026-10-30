@@ -77,6 +77,12 @@ vi.mock('@/client/components/TopicConfirmDialog', () => ({
   ),
 }));
 
+const fetchResponse = (items: unknown[] = [], batchId = 'hb_test_001') => ({
+  items,
+  batchId,
+  fetchedAtIso: '2026-08-20T12:00:00.000Z',
+});
+
 const suggestedResponse = (profileUsed = true) => ({
   topics: Array.from({ length: 10 }, (_, index) => ({
     title: `建议标题${index + 1}`,
@@ -90,6 +96,7 @@ const suggestedResponse = (profileUsed = true) => ({
   model: 'glm-4.5-flash',
   profileUsed,
   totalHotspots: 30,
+  batchId: 'hb_test_001',
 });
 
 const suggestCalls = () => mocks.call.mock.calls.filter(([endpoint]) => endpoint === 'hotspots/suggest');
@@ -99,7 +106,7 @@ const user = userEvent.setup();
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.call.mockImplementation(async (endpoint: string) => {
-    if (endpoint === 'hotspots/fetch') return [];
+    if (endpoint === 'hotspots/fetch') return fetchResponse();
     if (endpoint === 'hotspots/suggest') return suggestedResponse();
     throw new Error(`unexpected endpoint ${endpoint}`);
   });
@@ -128,7 +135,7 @@ describe('HotspotsPanel 建议选题', () => {
 
   it('点击热点「写这个」：同样先打开确认弹层', async () => {
     mocks.call.mockImplementation(async (endpoint: string) => {
-      if (endpoint === 'hotspots/fetch') return [{ title: '热点 1', source: 'weibo', rank: 1, url: 'https://x.test/1' }];
+      if (endpoint === 'hotspots/fetch') return fetchResponse([{ title: '热点 1', source: 'weibo', rank: 1, url: 'https://x.test/1' }]);
       if (endpoint === 'hotspots/suggest') return suggestedResponse();
       throw new Error(`unexpected endpoint ${endpoint}`);
     });
@@ -144,7 +151,7 @@ describe('HotspotsPanel 建议选题', () => {
 
   it('未配置模型：显示可行动提示并提供「去设置」入口', async () => {
     mocks.call.mockImplementation(async (endpoint: string) => {
-      if (endpoint === 'hotspots/fetch') return [];
+      if (endpoint === 'hotspots/fetch') return fetchResponse();
       throw new Error('[internal] [llm-not-configured] 尚未配置默认模型');
     });
 
@@ -157,7 +164,7 @@ describe('HotspotsPanel 建议选题', () => {
 
   it('写作要求缺失：profileUsed=false 时顶部显示补充提示与去设置动作', async () => {
     mocks.call.mockImplementation(async (endpoint: string) => {
-      if (endpoint === 'hotspots/fetch') return [];
+      if (endpoint === 'hotspots/fetch') return fetchResponse();
       if (endpoint === 'hotspots/suggest') return suggestedResponse(false);
       throw new Error(`unexpected endpoint ${endpoint}`);
     });
@@ -175,5 +182,64 @@ describe('HotspotsPanel 建议选题', () => {
 
     await waitFor(() => expect(suggestCalls()).toHaveLength(2));
     expect(suggestCalls()[1]?.[1]).toEqual({ count: 10, refresh: true });
+  });
+
+  it('热榜刷新：批次变化后自动重新生成建议（无需手动点建议区刷新）', async () => {
+    let fetchCount = 0;
+    mocks.call.mockImplementation(async (endpoint: string) => {
+      if (endpoint === 'hotspots/fetch') {
+        fetchCount += 1;
+        return fetchResponse([], `hb_batch_${fetchCount}`);
+      }
+      if (endpoint === 'hotspots/suggest') {
+        return { ...suggestedResponse(), batchId: `hb_batch_${fetchCount || 1}` };
+      }
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+
+    render(<HotspotsPanel />);
+    await waitFor(() => expect(screen.getByText('建议标题1')).toBeTruthy());
+    expect(suggestCalls()).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: '刷新' }));
+
+    await waitFor(() => expect(suggestCalls()).toHaveLength(2));
+    // 热榜触发的自动生成不带 refresh：新批次本身就是新的缓存 key。
+    expect(suggestCalls()[1]?.[1]).toEqual({ count: 10 });
+  });
+
+  it('热榜刷新重新生成期间：保留上一批建议并提示更新中', async () => {
+    let fetchCount = 0;
+    let suggestCount = 0;
+    let releaseSecond: (() => void) | undefined;
+    const second = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    mocks.call.mockImplementation(async (endpoint: string) => {
+      if (endpoint === 'hotspots/fetch') {
+        fetchCount += 1;
+        return fetchResponse([], `hb_batch_${fetchCount}`);
+      }
+      if (endpoint === 'hotspots/suggest') {
+        suggestCount += 1;
+        const batchId = `hb_batch_${fetchCount || 1}`;
+        if (suggestCount === 1) return { ...suggestedResponse(), batchId };
+        await second;
+        return { ...suggestedResponse(), batchId };
+      }
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+
+    render(<HotspotsPanel />);
+    await waitFor(() => expect(screen.getByText('建议标题1')).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: '刷新' }));
+
+    await waitFor(() => expect(screen.getByText('正在按最新热榜生成建议…')).toBeTruthy());
+    // 旧结果不消失，避免骨架屏闪烁。
+    expect(screen.getByText('建议标题1')).toBeTruthy();
+
+    releaseSecond?.();
+    await waitFor(() => expect(screen.queryByText('正在按最新热榜生成建议…')).toBeNull());
   });
 });

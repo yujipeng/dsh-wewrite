@@ -331,7 +331,7 @@ describe('service.suggestTopics', () => {
     expect(userTextOf(llm.calls[0] ?? {})).toContain('最多 3 条');
   });
 
-  it('缓存 30 分钟：第二次调用直接命中，不再拉热榜/调模型；refresh=true 强制重算', async () => {
+  it('缓存 30 分钟：第二次调用直接命中，不再调模型；refresh=true 强制重算但不重复拉热榜', async () => {
     const llm = makeScriptedLlm(async () => textStream(linesFor(10)));
     const { service, fetchImpl } = await makeService(llm.llm, { writingProfile: PROFILE });
 
@@ -340,9 +340,41 @@ describe('service.suggestTopics', () => {
     expect(llm.calls).toHaveLength(1);
     expect(fetchImpl.mock.calls).toHaveLength(1);
 
+    // 建议区「刷新」= 同一热榜批次重算，不产生新批次、不重复拉热榜。
     await service.suggestTopics({ count: 10, refresh: true });
     expect(llm.calls).toHaveLength(2);
-    expect(fetchImpl.mock.calls).toHaveLength(2);
+    expect(fetchImpl.mock.calls).toHaveLength(1);
+  });
+
+  it('批次：hotspots/fetch 返回 batchId，suggest 复用同一批热榜（不重复拉取）', async () => {
+    const llm = makeScriptedLlm(async () => textStream(linesFor(10)));
+    const { service, fetchImpl } = await makeService(llm.llm, { writingProfile: PROFILE });
+
+    const batch = await service.fetchHotspotBatch(30);
+    expect(batch.batchId).toMatch(/^hb_[a-z0-9]+$/);
+    expect(batch.items).toHaveLength(30);
+    expect(batch.fetchedAtIso).toBe(FIXED_NOW.toISOString());
+    const fetchesAfterBatch = fetchImpl.mock.calls.length;
+
+    const result = await service.suggestTopics({ count: 10 });
+    expect(result.batchId).toBe(batch.batchId);
+    expect(fetchImpl.mock.calls.length).toBe(fetchesAfterBatch);
+  });
+
+  it('热榜刷新产生新批次：建议缓存随 batchId 失效并重新生成', async () => {
+    const llm = makeScriptedLlm(async () => textStream(linesFor(10)));
+    const { service } = await makeService(llm.llm, { writingProfile: PROFILE });
+
+    const first = await service.fetchHotspotBatch(30);
+    const firstSuggest = await service.suggestTopics({ count: 10 });
+    expect(firstSuggest.batchId).toBe(first.batchId);
+    const callsAfterFirst = llm.calls.length;
+
+    const second = await service.fetchHotspotBatch(30);
+    expect(second.batchId).not.toBe(first.batchId);
+    const secondSuggest = await service.suggestTopics({ count: 10 });
+    expect(secondSuggest.batchId).toBe(second.batchId);
+    expect(llm.calls.length).toBeGreaterThan(callsAfterFirst);
   });
 
   it('写作要求变更：缓存 key 变化，下一次重新生成', async () => {

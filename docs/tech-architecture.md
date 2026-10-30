@@ -354,7 +354,7 @@ DomainSpec
 | endpoint | request | response | 说明 |
 |---|---|---|---|
 | `snapshot` | `{}` | `Snapshot { articles[], runs[], schedules[], config: ConfigView, serverNow, capabilities }` | 首拉全量；capabilities 做版本协商（§8） |
-| `hotspots/fetch` | `{ limit? }` | `HotspotItem[] { title, source, rank, url }` | 微博/头条/百度聚合（F30 同源逻辑平移） |
+| `hotspots/fetch` | `{ limit? }` | `HotspotFetchView { items[] { title, source, rank, url }, batchId, fetchedAtIso }` | 微博/头条/百度聚合（F30 同源逻辑平移）；每次拉取产生新批次，建议选题复用 |
 | `hotspots/digestItem` | `{ rank 1-100, title 1-500, url: http(s) }` | `{ digest 1-4000, source: 'article'\|'title', model, generatedAtIso }` | 逐条 AI 速览（v0.3）：host 抓原文（8s/2MB/text-html 白名单）→零依赖正文抽取（<300 字符判失败）→LLM 中文速览；抓取失败静默降级 title 模式，source 由 host 判定非模型自报 |
 | `article/rewrite` | `{ text 1-8000, instruction 1-200, title? 0-200 }` | `{ text 1-16000 }` | AI 选中改写（v0.3）：只重写传入选区文本，保 Markdown 结构，客户端单 transaction 替换可撤销 |
 | `article/list` | `{}` | `ArticleListItem[]` | 列表轻量视图 |

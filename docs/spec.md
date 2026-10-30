@@ -68,8 +68,8 @@
 | endpoint | request | response | 说明 |
 |---|---|---|---|
 | `snapshot` | `{}` | `Snapshot{articles[],runs[],schedules[],config,serverNow,capabilities}` | 首拉全量+版本协商 |
-| `hotspots/fetch` | `{limit?}` | `HotspotItem[]` | HN API+聚合源，单源失败隔离 |
-| `hotspots/suggest` | `{count?,refresh?}` | `SuggestedTopicsView{topics[],generatedAtIso,model,profileUsed,totalHotspots}` | 按写作要求从热榜筛最多 10 条建议选题；host 缓存 30 分钟，refresh 强制重算 |
+| `hotspots/fetch` | `{limit?}` | `HotspotFetchView{items[],batchId,fetchedAtIso}` | HN API+聚合源，单源失败隔离；每次拉取产生新批次 |
+| `hotspots/suggest` | `{count?,refresh?}` | `SuggestedTopicsView{topics[],generatedAtIso,model,profileUsed,totalHotspots,batchId}` | 复用当前热榜批次；缓存 key 绑定 batchId，热榜刷新即自动重算；同批次缓存 30 分钟，refresh 强制重算 |
 | `hotspots/analyze` | `{rank,title,url}` | `HotspotAnalysis{summary,angle,source,model,generatedAtIso}` | 选题确认弹层：一次 LLM 返回简介 + 可写角度；前端按 URL 当日缓存 |
 | `article/list` | `{}` | `ArticleListItem[]` | 轻量视图 |
 | `article/get` | `{id}` | `ArticleDetail` | 含 markdown |

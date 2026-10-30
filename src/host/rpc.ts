@@ -43,7 +43,7 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
     case 'snapshot':
       return service.snapshot();
     case 'hotspots/fetch':
-      return service.fetchHotspots(payload.limit ?? 20);
+      return service.fetchHotspotBatch(payload.limit ?? 20);
     case 'hotspots/digestItem':
       return service.digestHotspotItem({
         rank: Number(payload.rank),

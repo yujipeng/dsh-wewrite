@@ -40,6 +40,14 @@ export const HotspotItemDigestSchema = z.strictObject({
 });
 export type HotspotItemDigest = z.infer<typeof HotspotItemDigestSchema>;
 
+/** 热榜拉取结果（批次）：建议选题按同一 batchId 复用这批热榜，热榜刷新即产生新批次。 */
+export const HotspotFetchViewSchema = z.strictObject({
+  items: z.array(HotspotItemSchema),
+  batchId: z.string().min(1),
+  fetchedAtIso: z.iso.datetime(),
+});
+export type HotspotFetchView = z.infer<typeof HotspotFetchViewSchema>;
+
 export const ArticleListItemSchema = z.strictObject({
   id: z.string(),
   slug: SlugSchema,
@@ -162,6 +170,8 @@ export const SuggestedTopicsViewSchema = z.strictObject({
   model: z.string(),
   profileUsed: z.boolean(),
   totalHotspots: z.number().int().min(0),
+  /** 本批建议对应的热榜批次；前端据此判断是否已是最新一批。 */
+  batchId: z.string().min(1),
 });
 export type SuggestedTopicsView = z.infer<typeof SuggestedTopicsViewSchema>;
 

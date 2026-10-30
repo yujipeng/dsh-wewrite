@@ -183,6 +183,8 @@
   font-size: var(--ww-text-xs);
   line-height: 1.6;
 }
+.ww-suggest__notice--loading { margin: 0; color: var(--ww-fg-secondary); }
+.ww-suggest__notice--error { margin: 0; background: var(--ww-danger-subtle); color: var(--ww-danger); }
 
 .ww-suggest__link {
   appearance: none;

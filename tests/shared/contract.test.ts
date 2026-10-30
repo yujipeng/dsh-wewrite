@@ -202,11 +202,19 @@ const CASES: EndpointCase[] = [
   },
   {
     endpoint: 'hotspots/fetch',
-    name: 'hotspots/fetch：可选 limit（1-100），响应为条目数组',
+    name: 'hotspots/fetch：可选 limit（1-100），响应为条目 + 批次号 + 拉取时间',
     validRequests: [{}, { limit: 20 }, { limit: 1 }, { limit: 100 }],
     invalidRequests: [{ limit: 0 }, { limit: -1 }, { limit: 101 }, { limit: '20' }, { limit: 1.5 }],
-    validResponse: [{ title: '某热榜标题', source: 'hackernews', rank: 1, url: 'https://news.ycombinator.com/item?id=1' }],
-    invalidResponse: [{ title: '缺 url', source: 'hackernews', rank: 1 }],
+    validResponse: {
+      items: [{ title: '某热榜标题', source: 'hackernews', rank: 1, url: 'https://news.ycombinator.com/item?id=1' }],
+      batchId: 'hb_test_001',
+      fetchedAtIso: '2026-08-20T12:00:00.000Z',
+    },
+    invalidResponse: {
+      items: [{ title: '缺 url', source: 'hackernews', rank: 1 }],
+      batchId: 'hb_test_001',
+      fetchedAtIso: '2026-08-20T12:00:00.000Z',
+    },
   },
   {
     endpoint: 'hotspots/digestItem',
@@ -281,6 +289,7 @@ const CASES: EndpointCase[] = [
       model: 'glm-4.5-flash',
       profileUsed: true,
       totalHotspots: 30,
+      batchId: 'hb_test_001',
     },
     invalidResponse: {
       topics: [
@@ -297,6 +306,7 @@ const CASES: EndpointCase[] = [
       model: 'glm-4.5-flash',
       profileUsed: 'yes',
       totalHotspots: 30,
+      batchId: 'hb_test_001',
     },
   },
   {

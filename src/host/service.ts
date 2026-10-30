@@ -1,6 +1,6 @@
 /** WeWriteService（架构 §3）：host 级唯一服务；写操作串行化。重活已拆 images/wechat-flow/articles-store/schedules-store/views。 */
 
-import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
+import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotFetchView, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
 import { randomUUID } from 'node:crypto';
 import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
@@ -69,9 +69,11 @@ export class WeWriteService {
   /** callId→runId 内存映射（M2 运行卡 callId 兜底链；有界 FIFO，dispose 清空）+ AC-M1-12 单一真源闸门。 */
   private readonly callBindings: CallRunBindings;
   private readonly agentToolsGate: AgentToolsGate;
-  /** 建议选题缓存（key = count + 写作要求；30 分钟 TTL）与同 key 并发请求复用。 */
+  /** 建议选题缓存（key = batchId + count + 写作要求；30 分钟 TTL）与同 key 并发请求复用。 */
   private suggestCache: { key: string; at: number; value: SuggestedTopicsView } | undefined;
   private readonly suggestInFlight = new Map<string, Promise<SuggestedTopicsView>>();
+  /** 最近一批热榜：建议选题复用同一批，热榜刷新（再次 fetch）即换批次。 */
+  private hotspotBatch: { batchId: string; items: readonly HotspotItem[]; fetchedAtIso: string } | undefined;
 
   private constructor(private readonly deps: ServiceDeps) {
     this.tables = openTables(deps.domain);
@@ -178,11 +180,35 @@ export class WeWriteService {
       sources: this.settings.hotspotSources,
       fetchImpl: this.deps.fetchImpl,
     });
-    const { items, failures } = await aggregateHotspots(sources, limit);
+    // 建议选题需要 30 条：一次至少拉 30 并存为批次；调用方只取前 limit 条。
+    const pullLimit = Math.max(limit, SUGGEST_HOTSPOT_LIMIT);
+    const { items, failures } = await aggregateHotspots(sources, pullLimit);
     for (const failure of failures) {
       this.logger.warn(truncateMessage(`热榜源 ${failure.sourceId} 拉取失败：${failure.message}`));
     }
-    return [...items];
+    const batchItems = [...items];
+    this.hotspotBatch = {
+      batchId: `hb_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      items: batchItems,
+      fetchedAtIso: this.nowIso(),
+    };
+    return batchItems.slice(0, limit);
+  }
+
+  /** 热榜 RPC 视图：条目 + 批次号，前端用 batchId 判断建议选题是否对应当前热榜。 */
+  async fetchHotspotBatch(limit = 20): Promise<HotspotFetchView> {
+    const items = await this.fetchHotspots(limit);
+    const batch = this.hotspotBatch;
+    if (!batch) throw new WewriteServiceError('hotspot-batch-missing', '热榜批次未建立');
+    return { items, batchId: batch.batchId, fetchedAtIso: batch.fetchedAtIso };
+  }
+
+  /** 建议选题直接调用（定时/工具）时，确保有一个可用批次。 */
+  private async ensureHotspotBatch(): Promise<{ batchId: string; items: readonly HotspotItem[]; fetchedAtIso: string }> {
+    if (!this.hotspotBatch) await this.fetchHotspots(SUGGEST_HOTSPOT_LIMIT);
+    const batch = this.hotspotBatch;
+    if (!batch) throw new WewriteServiceError('hotspot-batch-missing', '热榜批次未建立');
+    return batch;
   }
 
   /** 热榜逐条 AI 速览（uiux v0.3 §1）：抓原文→抽取→LLM；抓取失败静默降级 title 模式。 */
@@ -219,11 +245,13 @@ export class WeWriteService {
 
   /**
    * 建议选题（选题中心右栏）：写作要求 + 热榜 30 条 → 最多 10 条可写选题。
-   * 缓存 30 分钟（key = count + 写作要求），refresh 绕过缓存；同 key 并发请求复用同一 Promise。
+   * 批次语义：复用最近一批热榜；缓存 key 绑定 batchId，热榜刷新即自动失效。
+   * 同一批次 30 分钟内复用结果；refresh 绕过缓存；同 key 并发请求复用同一 Promise。
    */
   async suggestTopics(input: { count?: number; refresh?: boolean } = {}): Promise<SuggestedTopicsView> {
     const count = Math.min(10, Math.max(1, input.count ?? 10));
-    const key = `${count}:${JSON.stringify(this.settings.writingProfile)}`;
+    const batch = await this.ensureHotspotBatch();
+    const key = `${batch.batchId}:${count}:${JSON.stringify(this.settings.writingProfile)}`;
     const now = this.nowFn().getTime();
     if (!input.refresh && this.suggestCache?.key === key && now - this.suggestCache.at < SUGGEST_CACHE_TTL_MS) {
       return this.suggestCache.value;
@@ -231,8 +259,7 @@ export class WeWriteService {
     const inFlight = this.suggestInFlight.get(key);
     if (inFlight) return inFlight;
     const task = (async () => {
-      const hotspots = await this.fetchHotspots(SUGGEST_HOTSPOT_LIMIT);
-      const value = await runSuggestTopics(
+      const outcome = await runSuggestTopics(
         {
           llm: this.deps.llm as unknown as PipelineLlm,
           provider: this.state.settings.llmDefault.provider,
@@ -242,9 +269,10 @@ export class WeWriteService {
           timeoutMs: this.deps.suggestTimeoutMs ?? SUGGEST_TIMEOUT_MS,
           nowIso: () => this.nowIso(),
         },
-        hotspots,
+        batch.items.slice(0, SUGGEST_HOTSPOT_LIMIT),
         count,
       );
+      const value: SuggestedTopicsView = { ...outcome, batchId: batch.batchId };
       this.suggestCache = { key, at: this.nowFn().getTime(), value };
       return value;
     })().finally(() => {

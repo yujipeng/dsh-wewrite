@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { HotspotItem, SuggestedTopicView, SuggestedTopicsView } from '@/shared/contract';
+import type { HotspotFetchView, HotspotItem, SuggestedTopicView, SuggestedTopicsView } from '@/shared/contract';
 import { domainOf, formatTime, hotspotSourceLabel, isHttpUrl } from '../lib/format';
 import { describeRpcFailure, WewriteRpcError } from '../lib/rpc';
 import { EmptyState, ErrorNote, SkeletonRow } from '../components/bits';
@@ -32,13 +32,13 @@ type HotspotsState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; items: HotspotItem[]; fetchedAtIso: string };
+  | { status: 'ready'; items: HotspotItem[]; fetchedAtIso: string; batchId: string };
 
 type SuggestState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; data: SuggestedTopicsView };
+  | { status: 'ready'; data: SuggestedTopicsView; refreshing?: boolean; errorMessage?: string };
 
 interface SuggestFailure {
   title: string;
@@ -110,8 +110,8 @@ export function HotspotsPanel() {
   const fetchHotspots = useCallback(async () => {
     setState({ status: 'loading' });
     try {
-      const items = await rpc.call<HotspotItem[]>('hotspots/fetch', { limit: 30 });
-      setState({ status: 'ready', items, fetchedAtIso: new Date().toISOString() });
+      const data = await rpc.call<HotspotFetchView>('hotspots/fetch', { limit: 30 });
+      setState({ status: 'ready', items: data.items, fetchedAtIso: data.fetchedAtIso, batchId: data.batchId });
     } catch (error) {
       setState({ status: 'error', message: error instanceof WewriteRpcError ? error.message : String(error) });
     }
@@ -124,26 +124,44 @@ export function HotspotsPanel() {
     void fetchHotspots();
   }, [fetchHotspots]);
 
-  /** refresh=true 绕过 host 30 分钟缓存；进入页面首次加载走缓存。 */
+  /**
+   * 建议选题：热榜批次变化后自动触发（进入页面 / 手动刷新热榜）。
+   * 已有结果时保留旧列表并标记 refreshing，避免骨架屏闪烁；失败也保留旧结果。
+   * refresh=true 用于同批次强制重算（建议区自己的刷新按钮）；旧的响应由序号丢弃。
+   */
+  const suggestSeq = useRef(0);
   const loadSuggestions = useCallback(async (refresh = false) => {
-    setSuggest({ status: 'loading' });
+    const seq = suggestSeq.current + 1;
+    suggestSeq.current = seq;
+    setSuggest((prev) =>
+      prev.status === 'ready' ? { status: 'ready', data: prev.data, refreshing: true } : { status: 'loading' },
+    );
     try {
       const data = await rpc.call<SuggestedTopicsView>('hotspots/suggest', {
         count: 10,
         ...(refresh ? { refresh: true } : {}),
       });
+      if (seq !== suggestSeq.current) return;
       setSuggest({ status: 'ready', data });
     } catch (error) {
-      setSuggest({ status: 'error', message: error instanceof WewriteRpcError ? error.message : String(error) });
+      if (seq !== suggestSeq.current) return;
+      const message = error instanceof WewriteRpcError ? error.message : String(error);
+      setSuggest((prev) =>
+        prev.status === 'ready'
+          ? { status: 'ready', data: prev.data, refreshing: false, errorMessage: message }
+          : { status: 'error', message },
+      );
     }
   }, [rpc]);
 
-  const initialSuggest = useRef(false);
+  /** 热榜批次变化 → 立即按新批次生成建议（不再等用户手动点建议区刷新）。 */
+  const lastSuggestedBatch = useRef<string | null>(null);
   useEffect(() => {
-    if (initialSuggest.current) return;
-    initialSuggest.current = true;
+    if (state.status !== 'ready') return;
+    if (lastSuggestedBatch.current === state.batchId) return;
+    lastSuggestedBatch.current = state.batchId;
     void loadSuggestions();
-  }, [loadSuggestions]);
+  }, [state, loadSuggestions]);
 
   const hit = useCallback((item: HotspotItem): boolean => keywords.some((word) => word && item.title.includes(word)), [keywords]);
 
@@ -157,6 +175,9 @@ export function HotspotsPanel() {
   const candidates = store.snapshot.status === 'ready' ? store.snapshot.data.topicCandidates : [];
   const suggested = suggest.status === 'ready' ? suggest.data : undefined;
   const suggestFailure = suggest.status === 'error' ? describeSuggestFailure(suggest.message) : undefined;
+  const suggestRefreshing = suggest.status === 'ready' && suggest.refreshing === true;
+  const suggestStale = suggested !== undefined && state.status === 'ready' && suggested.batchId !== state.batchId;
+  const suggestRefreshError = suggest.status === 'ready' ? suggest.errorMessage : undefined;
 
   function addKeyword() {
     const word = keywordDraft.trim();
@@ -342,6 +363,7 @@ export function HotspotsPanel() {
             {suggested ? (
               <span className="ww-suggest__meta">
                 {suggested.topics.length} 条 · {formatTime(suggested.generatedAtIso)}
+                {suggestStale ? ' · 上一批' : ''}
               </span>
             ) : null}
             <span className="ww-suggest__spacer" />
@@ -349,7 +371,7 @@ export function HotspotsPanel() {
               variant="ghost"
               size="sm"
               aria-label="重新生成建议选题"
-              icon={<Icon name={suggest.status === 'loading' ? 'loader-circle' : 'refresh-cw'} size={16} className={suggest.status === 'loading' ? 'ww-spin' : undefined} />}
+              icon={<Icon name={suggest.status === 'loading' || suggestRefreshing ? 'loader-circle' : 'refresh-cw'} size={16} className={suggest.status === 'loading' || suggestRefreshing ? 'ww-spin' : undefined} />}
               onClick={() => void loadSuggestions(true)}
             >
               {t('action.refresh')}
@@ -363,6 +385,15 @@ export function HotspotsPanel() {
                 去设置
               </button>
             </div>
+          ) : null}
+
+          {suggestRefreshing ? (
+            <p className="ww-suggest__notice ww-suggest__notice--loading">正在按最新热榜生成建议…</p>
+          ) : null}
+          {suggestRefreshError ? (
+            <p className="ww-suggest__notice ww-suggest__notice--error">
+              本次更新失败：{stripCodePrefix(suggestRefreshError)}。当前显示上一批结果。
+            </p>
           ) : null}
 
           {suggest.status === 'loading' || suggest.status === 'idle' ? (

@@ -22,8 +22,8 @@ import {
   ConfigViewSchema,
   CredentialsDescriptorSchema,
   HotspotDigestItemSchema,
+  HotspotFetchViewSchema,
   HotspotItemDigestSchema,
-  HotspotItemSchema,
   HotspotAnalysisSchema,
   RunDetailSchema,
   ScheduleViewModelSchema,
@@ -105,7 +105,7 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
   snapshot: { request: EmptyRequest, response: SnapshotResponseSchema },
   'hotspots/fetch': {
     request: z.strictObject({ limit: z.number().int().min(1).max(100).optional() }),
-    response: z.array(HotspotItemSchema),
+    response: HotspotFetchViewSchema,
   },
   'hotspots/digestItem': {
     request: HotspotDigestItemSchema,
