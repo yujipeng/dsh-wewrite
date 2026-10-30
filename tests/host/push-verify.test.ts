@@ -54,6 +54,17 @@ describe('verifyDraft（推送后回读）', () => {
     expect(result.issues.join()).toContain('正文长度不足');
   });
 
+  it('标题内联标签导致空白差异时不误报（真实回归修复）', () => {
+    const result = verifyDraft(
+      {
+        ...actual,
+        content: '<h2>一、46 杯<span> 是算出来的</span>，也是编出来的</h2><p>正文内容足够长，能被校验识别。</p><img src="x"/>',
+      },
+      { ...expected, keySections: ['一、46 杯是算出来的，也是编出来的'] },
+    );
+    expect(result).toEqual({ ok: true, issues: [] });
+  });
+
   it('extractKeySections：只提取 H2，忽略代码块中的井号行', () => {
     const markdown = ['# 标题', '## 第一节', '正文', '## 第二节', '```', '## 不是标题', '```'].join('\n');
     expect(extractKeySections(markdown)).toEqual(['第一节', '第二节']);

@@ -85,7 +85,7 @@ export class ArticleStore {
         id: existing?.id ?? `art_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
         slug: existing?.slug ?? `run-${runId.slice(4, 16)}`,
         // v0.5 标题硬绑：启动 brief 给定标题优先于成稿推导（给了就是最终标题）。
-        title: existing?.title ?? run?.paramsSnapshot.brief?.title ?? deriveTitle(markdown),
+        title: existing?.title ?? run?.paramsSnapshot.brief?.title ?? deriveTitle(markdown, run?.paramsSnapshot.topic),
         digest: existing?.digest ?? deriveDigest(markdown),
         status: 'rendered',
         markdown,
@@ -130,9 +130,32 @@ export class ArticleStore {
   }
 }
 
-function deriveTitle(markdown: string): string {
-  const heading = markdown.trim().match(/^#{0,2}\s*(.+)$/m);
-  return (heading?.[1] ?? '未命名稿件').slice(0, 40);
+export function deriveTitle(markdown: string, topic?: string): string {
+  const lines = markdown.split('\n').map((line) => line.trim());
+  const h1 = lines.find((line) => /^#\s+\S/.test(line));
+  const firstProse = lines.find(
+    (line) =>
+      line.length > 0
+      && !/^!\[/.test(line)
+      && !/^#{1,6}\s/.test(line)
+      && !/^```/.test(line)
+      && !/^[-*+]\s/.test(line)
+      && !/^\d+[.)]\s/.test(line)
+      && !/^\|/.test(line)
+      && !/^:::/.test(line),
+  );
+  const candidate = h1 ? h1.replace(/^#\s+/, '') : topic?.trim() || firstProse || '未命名稿件';
+  const title = cleanTitle(candidate);
+  return (title || '未命名稿件').slice(0, 40);
+}
+
+function cleanTitle(value: string): string {
+  return value
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** 微信摘要上限 120 字节；派生摘要留 2 字节余量，按 UTF-8 码点截断避免切坏多字节字符。 */

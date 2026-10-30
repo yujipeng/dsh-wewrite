@@ -30,8 +30,18 @@ function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** 小节比较忽略空白：微信可能在标题内插入内联标签，stripHtml 会留下空格。 */
+function compactText(value: string): string {
+  return value.replace(/\s+/g, '');
 }
 
 /** 从正文 Markdown 提取 H2 小节名（用于回读后确认关键段落没被吞）。 */
@@ -64,11 +74,12 @@ export function verifyDraft(actual: DraftVerifyActual, expected: DraftVerifyExpe
   }
 
   const text = stripHtml(actual.content);
+  const compact = compactText(text);
   if (expected.minTextChars && text.length < expected.minTextChars) {
     issues.push(`正文长度不足：回读 ${text.length} 字，低于下限 ${expected.minTextChars} 字`);
   }
   for (const section of expected.keySections) {
-    if (!text.includes(section)) {
+    if (!compact.includes(compactText(section))) {
       issues.push(`正文缺少小节：${section}`);
     }
   }
