@@ -38,6 +38,7 @@ export interface GatesRunner {
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
+    crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }): Promise<{ passed: boolean; report: unknown }>;
 }
 
@@ -89,6 +90,8 @@ export interface PipelineDeps {
   };
   /** I-12：评审阈值（默认 3.5）。 */
   readonly reviewThreshold?: number;
+  /** I-23：Crossref DOI 核对；默认关闭，关闭时不发外部请求。 */
+  readonly crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
 }
 
 export interface StartOptions {
@@ -363,6 +366,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               ...(brief?.mustInclude?.length ? { mustInclude: brief.mustInclude } : {}),
               ...(brief?.mustAvoid?.length ? { mustAvoid: brief.mustAvoid } : {}),
               ...(brief?.claims?.length ? { claims: brief.claims } : {}),
+              ...(deps.crossref ? { crossref: deps.crossref } : {}),
             });
 
           let verdict = await runGates();

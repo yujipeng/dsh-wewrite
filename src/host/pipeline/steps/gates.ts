@@ -6,6 +6,7 @@
  */
 
 import type { GatesRunner } from '../engine';
+import { verifyClaimDois, type CrossrefReport } from '../../research/crossref';
 
 /** 禁用词（源管线 BANNED_PATTERNS 同集）。 */
 const BANNED_WORDS = [
@@ -126,6 +127,8 @@ export interface GatesReport {
   readonly contract: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-22：事实主张—来源门禁；未携带 claims 时 undefined。 */
   readonly claims: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
+  /** I-23：Crossref DOI 核对结果（只记录，不参与 passed 判定）。 */
+  readonly crossref?: CrossrefReport;
   readonly issues: readonly string[];
 }
 
@@ -332,8 +335,9 @@ export const qualityGatesRunner: GatesRunner = {
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
+    crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }) {
-    return runQualityGates({
+    const result = runQualityGates({
       markdown: input.markdown,
       ...(input.sources?.length ? { sources: input.sources, userText: input.userText } : {}),
       ...(input.outlineSkeleton?.length ? { outlineSkeleton: input.outlineSkeleton } : {}),
@@ -341,5 +345,13 @@ export const qualityGatesRunner: GatesRunner = {
       ...(input.mustAvoid?.length ? { mustAvoid: input.mustAvoid } : {}),
       ...(input.claims?.length ? { claims: input.claims } : {}),
     });
+    if (!input.crossref) return result;
+    // I-23：DOI 核对只写报告，不改 passed（默认关闭时 verifyClaimDois 直接返回，不发请求）。
+    const crossref = await verifyClaimDois(input.claims ?? [], {
+      enabled: input.crossref.enabled,
+      ...(input.crossref.fetchImpl ? { fetchImpl: input.crossref.fetchImpl } : {}),
+      ...(input.crossref.timeoutMs ? { timeoutMs: input.crossref.timeoutMs } : {}),
+    });
+    return { passed: result.passed, report: { ...result.report, crossref } };
   },
 };

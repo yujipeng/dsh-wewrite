@@ -154,6 +154,10 @@ export class WeWriteService {
         },
       },
       reviewThreshold: this.settings.editorialReview?.threshold ?? DEFAULT_REVIEW_THRESHOLD,
+      crossref: {
+        enabled: this.settings.crossrefEnabled === true,
+        ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+      },
       now: this.nowFn,
     });
     this.scheduler = createSchedulerService({

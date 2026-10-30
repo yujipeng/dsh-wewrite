@@ -72,7 +72,7 @@ export function SettingsPanel() {
         ) : group === 'proxy' ? (
           <ProxySection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
         ) : (
-          <DisciplineSection />
+          <DisciplineSection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
         )}
       </div>
     </div>

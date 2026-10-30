@@ -101,6 +101,7 @@ const ConfigSetRequestSchema = z.strictObject({
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),
   imageProviders: z.array(ImageProviderConfigSchema).optional(),
+  crossrefEnabled: z.boolean().optional(),
 });
 
 export const rpcContract: Record<string, { readonly request: z.ZodType; readonly response: z.ZodType }> = {

@@ -322,8 +322,25 @@ export function ProxySection({ config, rpc }: SectionProps) {
   );
 }
 
-/** 发布纪律：草稿箱锁定态（v0.1 无群发调用路径，AC-10）。 */
-export function DisciplineSection() {
+/** 发布纪律：草稿箱锁定态（v0.1 无群发调用路径，AC-10）+ I-23 Crossref 事实核查开关。 */
+export function DisciplineSection({ config, rpc, onSaved }: SectionProps) {
+  const [crossrefEnabled, setCrossrefEnabled] = useState(config.settings.crossrefEnabled === true);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  async function toggleCrossref(): Promise<void> {
+    const next = !crossrefEnabled;
+    setCrossrefEnabled(next);
+    setSaveState('saving');
+    try {
+      await rpc.call('config/set', { crossrefEnabled: next });
+      setSaveState('saved');
+      await onSaved();
+    } catch {
+      setCrossrefEnabled(!next);
+      setSaveState('error');
+    }
+  }
+
   return (
     <div className="ww-settings__section">
       <h3 className="ww-settings__h">发布纪律</h3>
@@ -335,6 +352,23 @@ export function DisciplineSection() {
         </div>
         <Pill>锁定</Pill>
       </div>
+
+      <h3 className="ww-settings__h" style={{ marginTop: 20 }}>事实核查</h3>
+      <label className="ww-field">
+        <span className="ww-field__label">
+          <input
+            type="checkbox"
+            checked={crossrefEnabled}
+            onChange={() => void toggleCrossref()}
+            aria-label="开启 Crossref DOI 核对"
+          />
+          {' '}开启 Crossref DOI 核对
+        </span>
+        <span className="ww-field__hint">
+          默认关闭。开启后，带 DOI 的事实主张会在门禁阶段请求 api.crossref.org 校对题名/卷期页；404 或超时只记录，不阻断成稿。
+        </span>
+        <SaveState state={saveState} />
+      </label>
     </div>
   );
 }

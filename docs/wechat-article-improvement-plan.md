@@ -264,8 +264,8 @@
 
 - **问题**：外部流程用 Crossref API 逐条核对 DOI、卷期页，曾据此纠正过错误 DOI。
 - **做法**：可选开关。开启后对 claims 中带 DOI 的条目请求 `api.crossref.org`，比对题名与卷期页；失败/超时标记「未核对」，**不阻断成稿**，只在评审 notes 中列出。
-- **落点**：`src/host/pipeline/steps/gates.ts`（或独立 `src/host/research/crossref.ts`）。
-- **验收**：mock 200/404/超时三条路径；未开启时不发任何外部请求。
+- **落点**：`src/host/pipeline/steps/gates.ts`（按 `crossrefEnabled` 调用 `verifyClaimDois`，结果写入 `GatesReport.crossref`）、`src/host/research/crossref.ts`、`src/client/panels/settings-sections.tsx`（发布纪律里的开关）。
+- **验收**：mock 200/404/超时三条路径；未开启时不发任何外部请求；结果只记录、不参与 `passed`。
 
 ---
 
