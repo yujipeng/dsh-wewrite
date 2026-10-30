@@ -137,6 +137,9 @@ describe('HotspotsPanel 建议选题', () => {
     mocks.call.mockImplementation(async (endpoint: string) => {
       if (endpoint === 'hotspots/fetch') return fetchResponse([{ title: '热点 1', source: 'weibo', rank: 1, url: 'https://x.test/1' }]);
       if (endpoint === 'hotspots/suggest') return suggestedResponse();
+      if (endpoint === 'hotspots/digestItem') {
+        return { digest: '这条在讲什么：测试热点。', angles: [], source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' };
+      }
       throw new Error(`unexpected endpoint ${endpoint}`);
     });
 

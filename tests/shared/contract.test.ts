@@ -203,8 +203,8 @@ const CASES: EndpointCase[] = [
   {
     endpoint: 'hotspots/fetch',
     name: 'hotspots/fetch：可选 limit（1-100），响应为条目 + 批次号 + 拉取时间',
-    validRequests: [{}, { limit: 20 }, { limit: 1 }, { limit: 100 }],
-    invalidRequests: [{ limit: 0 }, { limit: -1 }, { limit: 101 }, { limit: '20' }, { limit: 1.5 }],
+    validRequests: [{}, { limit: 20 }, { limit: 1 }, { limit: 100 }, { refresh: true }, { limit: 30, refresh: false }],
+    invalidRequests: [{ limit: 0 }, { limit: -1 }, { limit: 101 }, { limit: '20' }, { limit: 1.5 }, { refresh: 'yes' }],
     validResponse: {
       items: [{ title: '某热榜标题', source: 'hackernews', rank: 1, url: 'https://news.ycombinator.com/item?id=1' }],
       batchId: 'hb_test_001',
@@ -236,7 +236,7 @@ const CASES: EndpointCase[] = [
       { rank: 1, title: '标题', url: 'not-a-url' },
       { rank: 1, title: '标题', url: 'ftp://scheme-not-allowed/' },
     ],
-    validResponse: { digest: '这条在讲什么：某引擎开源。', source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' },
+    validResponse: { digest: '这条在讲什么：某引擎开源。', angles: ['从成本结构切入', '对比闭源方案'], source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' },
     invalidResponse: { digest: '', source: 'rss', model: 'glm-4.5-flash', generatedAtIso: 'not-a-date' },
   },
   {
@@ -662,7 +662,7 @@ describe('视图模型 schema 细项', () => {
   });
 
   it('HotspotItemDigestSchema：digest 非空、source 仅 article|title、generatedAtIso 必须 ISO（v0.3 §1）', () => {
-    const digest = { digest: '这条在讲什么：某引擎开源。', source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' };
+    const digest = { digest: '这条在讲什么：某引擎开源。', angles: ['从成本结构切入', '对比闭源方案'], source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' };
     expect(HotspotItemDigestSchema.safeParse(digest).success).toBe(true);
     expect(HotspotItemDigestSchema.safeParse({ ...digest, source: 'title' }).success).toBe(true);
     expect(HotspotItemDigestSchema.safeParse({ ...digest, digest: '' }).success).toBe(false);

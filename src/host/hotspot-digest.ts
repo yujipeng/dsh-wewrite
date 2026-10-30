@@ -168,7 +168,9 @@ function digestItemArticleUserPrompt(title: string, domain: string, body: string
     '请严格按以下行结构输出纯文本（不加 Markdown 记号、不加额外说明）：',
     '这条在讲什么：一句话概括核心事件',
     '· 要点：具体事实或数字（2 到 4 行，每行一个）',
-    '要点只能来自给定正文，不得补充外部信息，不得虚构数字与事实。',
+    '分析角度：',
+    '- 面向公众号读者的可写角度（2 到 3 条，每条一行，落到具体切入方式与读者关切）',
+    '要点与角度只能来自给定正文，不得补充外部信息，不得虚构数字与事实。',
   ].join('\n');
 }
 
@@ -180,9 +182,56 @@ function digestItemTitleUserPrompt(title: string, domain: string): string {
     '',
     '请严格按以下行结构输出纯文本（不加 Markdown 记号、不加额外说明）：',
     '标题解读：中文译名，加一句话说明在讲什么',
-    '· 角度：从公众号选题视角给一个可写的角度，一行',
+    '· 要点：从标题可推断的事实或变化（1 到 2 行，每行一个）',
+    '分析角度：',
+    '- 方向性写作角度（2 到 3 条，每条一行）',
     '只有标题与域名可用：不得虚构原文没有的事实；角度只做方向性建议，不提具体功能、数字或参数。',
   ].join('\n');
+}
+
+// ── 输出解析：速览正文 + 分析角度 ────────────────────────────────────────────
+
+/**
+ * 把模型输出拆成「速览正文」与「分析角度」两段：
+ * - 命中 `分析角度：` / `可写角度：` 等表头后，后续行全部归入 angles；
+ * - 兼容表头内联多条（分号分隔）与编号/列表符号；
+ * - 没有表头时 angles 为空，正文原样保留。
+ */
+export function parseDigestOutput(text: string): { digest: string; angles: string[] } {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const digestLines: string[] = [];
+  const angles: string[] = [];
+  let inAngles = false;
+
+  for (const line of lines) {
+    const normalized = line.replace(/^\s*[-*·•]\s*/, '').replace(/\*\*/g, '').trim();
+    const header = normalized.match(/^(?:分析角度|可写角度|写作角度|角度)\s*[:：]\s*(.*)$/);
+    if (header) {
+      inAngles = true;
+      const inline = (header[1] ?? '').trim();
+      if (inline) {
+        for (const part of inline.split(/[；;]/)) {
+          const value = part.trim();
+          if (value) angles.push(value);
+        }
+      }
+      continue;
+    }
+    if (inAngles) {
+      const value = normalized.replace(/^\d+[.、]\s*/, '').trim();
+      if (value) angles.push(value);
+      continue;
+    }
+    digestLines.push(line);
+  }
+
+  return {
+    digest: digestLines.join('\n').trim(),
+    angles: angles.slice(0, 4),
+  };
 }
 
 // ── digestItem 服务逻辑 ──────────────────────────────────────────────────────
@@ -224,10 +273,12 @@ export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDi
     if (outcome.status === 'error') throw new WewriteServiceError(outcome.code, outcome.message);
     if (!outcome.text) throw new WewriteServiceError('digest-empty', '模型未返回任何内容，请重试');
     const source = articleText !== null ? 'article' : 'title';
+    const parsed = parseDigestOutput(outcome.text);
+    const digestText = parsed.digest || outcome.text.trim();
     deps.logger.info(
-      `hotspot item digest ok：rank=${item.rank} source=${source} model=${model} body=${articleText?.length ?? 0} ${Date.now() - startedAt}ms`,
+      `hotspot item digest ok：rank=${item.rank} source=${source} model=${model} body=${articleText?.length ?? 0} angles=${parsed.angles.length} ${Date.now() - startedAt}ms`,
     );
-    return { digest: outcome.text, source, model, generatedAtIso: deps.nowIso() };
+    return { digest: digestText, angles: parsed.angles, source, model, generatedAtIso: deps.nowIso() };
   } catch (error) {
     const code = error instanceof WewriteServiceError ? error.code : 'unknown';
     deps.logger.warn(`hotspot item digest failed（rank=${item.rank} ${code}）：${error instanceof Error ? error.message : String(error)}`);

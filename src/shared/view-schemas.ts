@@ -34,6 +34,8 @@ export type HotspotDigestItem = z.infer<typeof HotspotDigestItemSchema>;
 /** 热榜逐条 AI 速览响应（uiux v0.3 §1）：source 由 host 依抓取抽取结果判定，不由模型自报。 */
 export const HotspotItemDigestSchema = z.strictObject({
   digest: z.string().min(1).max(4000),
+  /** 2–4 条可写角度；列表速览与确认弹层共用同一份数据。 */
+  angles: z.array(z.string().min(1).max(200)).max(4),
   source: z.enum(['article', 'title']),
   model: z.string(),
   generatedAtIso: z.iso.datetime(),

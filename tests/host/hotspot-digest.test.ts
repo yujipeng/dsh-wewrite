@@ -185,6 +185,7 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     const llm = makeScriptedLlm(async function* () {
       yield { type: 'text-delta', index: 0, text: '这条在讲什么：某推理引擎开源并给出成本数据。' };
       yield { type: 'text-delta', index: 1, text: '\n· 要点：成本降到三成' };
+      yield { type: 'text-delta', index: 2, text: '\n分析角度：\n- 从成本结构切入\n- 对比闭源方案' };
       yield { type: 'finish', reason: { kind: 'stop' } };
     });
     const service = await makeService(llm.llm, { fetchImpl });
@@ -192,6 +193,7 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     const digest = await service.digestHotspotItem(ITEM);
 
     expect(digest.digest).toBe('这条在讲什么：某推理引擎开源并给出成本数据。\n· 要点：成本降到三成');
+    expect(digest.angles).toEqual(['从成本结构切入', '对比闭源方案']);
     expect(digest.source).toBe('article');
     expect(digest.model).toBe('glm-4.5-flash');
     expect(digest.generatedAtIso).toBe('2026-08-20T12:00:00.000Z');
@@ -221,6 +223,7 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     expect(user).toContain('推理成本');
     expect(user).toContain('这条在讲什么：');
     expect(user).toContain('· 要点：');
+    expect(user).toContain('分析角度：');
     expect(user).toContain('不得补充外部信息');
     expect(user).not.toContain('标题解读：');
   });
@@ -229,6 +232,7 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     const notFound = vi.fn(async () => new Response('missing', { status: 404 }));
     const llm = makeScriptedLlm(async function* () {
       yield { type: 'text-delta', index: 0, text: '标题解读：某引擎开源，社区反响热烈。' };
+      yield { type: 'text-delta', index: 1, text: '\n分析角度：\n- 从开源生态切入\n- 对比闭源商业模型' };
       yield { type: 'finish', reason: { kind: 'stop' } };
     });
     const service = await makeService(llm.llm, { fetchImpl: notFound as unknown as typeof fetch });
@@ -237,11 +241,12 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
 
     expect(digest.source).toBe('title');
     expect(digest.digest).toContain('标题解读：');
+    expect(digest.angles).toEqual(['从开源生态切入', '对比闭源商业模型']);
     const user = userTextOf(llm.calls[0]);
     expect(user).toContain('某推理引擎开源');
     expect(user).toContain('blog.example.test');
     expect(user).toContain('标题解读：');
-    expect(user).toContain('· 角度：');
+    expect(user).toContain('分析角度：');
     expect(user).toContain('不得虚构原文没有的事实');
     expect(user).not.toContain('正文节选');
   });

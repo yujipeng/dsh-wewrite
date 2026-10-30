@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { HotspotAnalysis, RunParams } from '@/shared/contract';
-import { readCachedAnalysis, writeCachedAnalysis } from '../lib/hotspot-analysis';
+import type { RunParams } from '@/shared/contract';
+import { readCachedDigest, writeCachedDigest, type DigestCacheEntry } from '../lib/hotspot-digest-cache';
 import { domainOf, hotspotSourceLabel, isHttpUrl } from '../lib/format';
 import { WewriteRpcError } from '../lib/rpc';
 import { useStore } from '../store';
 import { ErrorNote, SkeletonBlock } from './bits';
+import { DigestLine } from './HotspotItemDigest';
 import { Icon } from './Icon';
 
 /**
@@ -13,7 +14,8 @@ import { Icon } from './Icon';
  * 启动前展示来源、原文链接、AI 简介与分析角度，由用户确认/取消；
  * 已有进行中的生成任务时，改为「替换当前任务 / 排队生成新任务」二选一。
  *
- * 分析走 hotspots/analyze（简介 + 角度），当日按 URL 缓存；分析失败不阻断确认。
+ * AI 分析复用热门榜「AI 速览」（hotspots/digestItem，正文 + 2–4 条角度），
+ * 与列表共用当日缓存：已生成过直接展示、不重复调模型；分析失败不阻断确认。
  */
 
 export interface TopicDraft {
@@ -29,7 +31,7 @@ export interface TopicDraft {
 
 type AnalysisState =
   | { status: 'loading' }
-  | { status: 'ready'; data: HotspotAnalysis }
+  | { status: 'ready'; data: DigestCacheEntry }
   | { status: 'error'; message: string };
 
 interface AnalysisFailure {
@@ -43,7 +45,7 @@ function describeAnalysisFailure(message: string): AnalysisFailure {
   if (message.includes('llm-not-configured')) {
     return { title: '生成分析需要先配置模型。', hint: '到「设置 → 模型」选择模型后重试；也可以直接确认写这个。' };
   }
-  if (message.includes('analyze-timeout')) {
+  if (message.includes('digest-timeout')) {
     return { title: 'AI 分析超时。', hint: '可以重试，或直接确认写这个。' };
   }
   return { title: 'AI 分析暂时不可用。', hint: cleaned || '可以直接确认写这个，不影响生成。' };
@@ -52,26 +54,27 @@ function describeAnalysisFailure(message: string): AnalysisFailure {
 export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onClose: () => void }) {
   const { rpc, t, generation, activeRun, startGeneration, enqueueGeneration, replaceGeneration } = useStore();
   const [analysis, setAnalysis] = useState<AnalysisState>(() => {
-    const cached = readCachedAnalysis(draft.sourceUrl);
+    const cached = readCachedDigest(draft.sourceUrl);
     return cached ? { status: 'ready', data: cached } : { status: 'loading' };
   });
   const [busy, setBusy] = useState(false);
   const started = useRef(false);
 
   const loadAnalysis = useCallback(async () => {
-    const cached = readCachedAnalysis(draft.sourceUrl);
+    // 与热门榜「AI 速览」共用同一份数据与缓存：已生成过就直接展示，不再重复调模型。
+    const cached = readCachedDigest(draft.sourceUrl);
     if (cached) {
       setAnalysis({ status: 'ready', data: cached });
       return;
     }
     setAnalysis({ status: 'loading' });
     try {
-      const data = await rpc.call<HotspotAnalysis>('hotspots/analyze', {
+      const data = await rpc.call<DigestCacheEntry>('hotspots/digestItem', {
         rank: draft.sourceRank,
         title: draft.sourceTitle,
         url: draft.sourceUrl,
       });
-      writeCachedAnalysis(draft.sourceUrl, data);
+      writeCachedDigest(draft.sourceUrl, data);
       setAnalysis({ status: 'ready', data });
     } catch (error) {
       setAnalysis({ status: 'error', message: error instanceof WewriteRpcError ? error.message : String(error) });
@@ -186,7 +189,7 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
           {analysis.status === 'loading' ? (
             <>
               <SkeletonBlock lines={2} />
-              <p className="ww-topic-dialog__wait">AI 生成中，约 5–10 秒；也可以直接确认写这个。</p>
+              <p className="ww-topic-dialog__wait">AI 读取原文并分析中，约 5–10 秒；也可以直接确认写这个。</p>
             </>
           ) : analysis.status === 'error' ? (
             <ErrorNote
@@ -201,13 +204,32 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
           ) : (
             <>
               <div className="ww-topic-dialog__block">
-                <span className="ww-topic-dialog__label">简介</span>
-                <p>{analysis.data.summary}</p>
+                <span className="ww-topic-dialog__label">内容速览</span>
+                <div className="ww-topic-dialog__digest">
+                  {analysis.data.digest
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => line.length > 0)
+                    .map((line, index) => (
+                      <DigestLine key={`d${index}`} line={line} />
+                    ))}
+                </div>
               </div>
               <div className="ww-topic-dialog__block">
                 <span className="ww-topic-dialog__label">分析角度</span>
-                <p>{analysis.data.angle || '这次没有给出角度，可以直接写。'}</p>
+                {analysis.data.angles.length > 0 ? (
+                  <ol className="ww-topic-dialog__angles">
+                    {analysis.data.angles.map((angle, index) => (
+                      <li key={`a${index}`}>{angle}</li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p>这次没有给出角度，可以直接写。</p>
+                )}
               </div>
+              {analysis.data.source === 'title' ? (
+                <p className="ww-topic-dialog__note">未能读取原文，以上为标题解读；可直接确认，或打开原文查看细节。</p>
+              ) : null}
             </>
           )}
         </section>

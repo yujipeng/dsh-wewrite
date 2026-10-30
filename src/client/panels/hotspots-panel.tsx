@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { HotspotFetchView, HotspotItem, SuggestedTopicView, SuggestedTopicsView } from '@/shared/contract';
+import { readCachedSuggestions, writeCachedSuggestions } from '../lib/suggested-topics-cache';
 import { domainOf, formatTime, hotspotSourceLabel, isHttpUrl } from '../lib/format';
 import { describeRpcFailure, WewriteRpcError } from '../lib/rpc';
 import { EmptyState, ErrorNote, SkeletonRow } from '../components/bits';
@@ -68,7 +69,10 @@ export function HotspotsPanel() {
   const store = useStore();
   const { rpc, navigate, t } = store;
   const [state, setState] = useState<HotspotsState>({ status: 'idle' });
-  const [suggest, setSuggest] = useState<SuggestState>({ status: 'idle' });
+  const [suggest, setSuggest] = useState<SuggestState>(() => {
+    const cached = readCachedSuggestions();
+    return cached ? { status: 'ready', data: cached } : { status: 'idle' };
+  });
   const [draft, setDraft] = useState<TopicDraft | null>(null);
   const [keywords, setKeywords] = useState<string[]>(loadKeywords);
   const [keywordDraft, setKeywordDraft] = useState('');
@@ -107,10 +111,13 @@ export function HotspotsPanel() {
     }
   }, [keywords]);
 
-  const fetchHotspots = useCallback(async () => {
+  const fetchHotspots = useCallback(async (refresh = false) => {
     setState({ status: 'loading' });
     try {
-      const data = await rpc.call<HotspotFetchView>('hotspots/fetch', { limit: 30 });
+      const data = await rpc.call<HotspotFetchView>('hotspots/fetch', {
+        limit: 30,
+        ...(refresh ? { refresh: true } : {}),
+      });
       setState({ status: 'ready', items: data.items, fetchedAtIso: data.fetchedAtIso, batchId: data.batchId });
     } catch (error) {
       setState({ status: 'error', message: error instanceof WewriteRpcError ? error.message : String(error) });
@@ -142,6 +149,7 @@ export function HotspotsPanel() {
         ...(refresh ? { refresh: true } : {}),
       });
       if (seq !== suggestSeq.current) return;
+      writeCachedSuggestions(data);
       setSuggest({ status: 'ready', data });
     } catch (error) {
       if (seq !== suggestSeq.current) return;
@@ -154,12 +162,17 @@ export function HotspotsPanel() {
     }
   }, [rpc]);
 
-  /** 热榜批次变化 → 立即按新批次生成建议（不再等用户手动点建议区刷新）。 */
+  /** 热榜批次变化 → 立即按新批次生成建议；同批次且已有本地缓存则直接复用（零 RPC）。 */
   const lastSuggestedBatch = useRef<string | null>(null);
   useEffect(() => {
     if (state.status !== 'ready') return;
     if (lastSuggestedBatch.current === state.batchId) return;
     lastSuggestedBatch.current = state.batchId;
+    const cached = readCachedSuggestions();
+    if (cached && cached.batchId === state.batchId) {
+      setSuggest({ status: 'ready', data: cached });
+      return;
+    }
     void loadSuggestions();
   }, [state, loadSuggestions]);
 
@@ -242,7 +255,7 @@ export function HotspotsPanel() {
             </>
           ) : null}
           <div className="ww-pagebar__spacer" />
-          <Button variant="ghost" size="sm" icon={<Icon name={state.status === 'loading' ? 'loader-circle' : 'refresh-cw'} size={16} className={state.status === 'loading' ? 'ww-spin' : undefined} />} onClick={() => void fetchHotspots()}>
+          <Button variant="ghost" size="sm" icon={<Icon name={state.status === 'loading' ? 'loader-circle' : 'refresh-cw'} size={16} className={state.status === 'loading' ? 'ww-spin' : undefined} />} onClick={() => void fetchHotspots(true)}>
             {t('action.refresh')}
           </Button>
         </div>
@@ -292,7 +305,7 @@ export function HotspotsPanel() {
           <ErrorNote
             title={failure?.title ?? '热榜拉取失败。'}
             hint={failure?.hint}
-            action={<Button variant="outline" size="sm" onClick={() => void fetchHotspots()}>{t('action.retry')}</Button>}
+            action={<Button variant="outline" size="sm" onClick={() => void fetchHotspots(true)}>{t('action.retry')}</Button>}
           />
         ) : visible.length === 0 ? (
           onlyHits ? (

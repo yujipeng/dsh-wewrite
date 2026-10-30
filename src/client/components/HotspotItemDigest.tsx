@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { HotspotItem, HotspotItemDigest as HotspotItemDigestDto } from '@/shared/contract';
 import { WewriteRpcError } from '../lib/rpc';
+import { readCachedDigest, writeCachedDigest, type DigestCacheEntry } from '../lib/hotspot-digest-cache';
 import {
   clearDigestFailure,
   describeDigestError,
@@ -26,70 +27,13 @@ import { useStore } from '../store';
  * - loading 骨架下给时长预期；source=title 时徽记改「仅凭标题」并附参考性 caption。
  */
 
-const DIGEST_ITEM_STORAGE_KEY = 'dsh-wewrite.hotspot-item-digests';
-
-type DigestSource = 'article' | 'title';
-
-interface DigestCacheEntry {
-  digest: string;
-  source: DigestSource;
-  model: string;
-  generatedAtIso: string;
-}
-
-type DigestCache = Record<string, DigestCacheEntry>;
-
-function loadCache(): DigestCache {
-  try {
-    const raw = window.localStorage.getItem(DIGEST_ITEM_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed as DigestCache;
-  } catch {
-    return {};
-  }
-}
-
-/** 当日有效：缓存条目生成日期与今天不同（本地时区口径）即视为无缓存，次日重生成。 */
-function isSameLocalDay(iso: string): boolean {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-}
-
-function readCachedDigest(url: string): DigestCacheEntry | null {
-  const entry = loadCache()[url];
-  if (!entry) return null;
-  if (
-    typeof entry.digest !== 'string' ||
-    (entry.source !== 'article' && entry.source !== 'title') ||
-    typeof entry.model !== 'string' ||
-    typeof entry.generatedAtIso !== 'string' ||
-    !isSameLocalDay(entry.generatedAtIso)
-  ) {
-    return null;
-  }
-  return entry;
-}
-
-function writeCachedDigest(url: string, entry: DigestCacheEntry): void {
-  try {
-    const next: DigestCache = { ...loadCache(), [url]: entry };
-    window.localStorage.setItem(DIGEST_ITEM_STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    /* localStorage 不可用时速览仅存内存 */
-  }
-}
-
 export type ItemDigestPhase = 'idle' | 'loading' | 'error';
 
 // ── 行渲染（§D1-5：纯文本行 → DOM，宽松匹配，失败原样落正文行不丢内容） ─────────
 
 const LEAD_PREFIXES = ['这条在讲什么：', '标题解读：'] as const;
 
-function DigestLine({ line }: { line: string }) {
+export function DigestLine({ line }: { line: string }) {
   const leadPrefix = LEAD_PREFIXES.find((prefix) => line.startsWith(prefix));
   if (leadPrefix) {
     return (
@@ -140,6 +84,7 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
       });
       const next: DigestCacheEntry = {
         digest: result.digest,
+        angles: result.angles,
         source: result.source,
         model: result.model,
         generatedAtIso: result.generatedAtIso,
@@ -217,6 +162,16 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
               .map((line) => line.trim())
               .filter((line) => line.length > 0)
               .map((line, index) => <DigestLine key={`d${index}`} line={line} />)}
+            {entry.angles.length > 0 ? (
+              <div className="ww-hotspot__digest-angles" data-testid="ww-hotspot-digest-angles">
+                <p className="ww-hotspot__digest-angles-title">分析角度</p>
+                <ol className="ww-hotspot__digest-angles-list">
+                  {entry.angles.map((angle, index) => (
+                    <li key={`a${index}`}>{angle}</li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
             {entry.source === 'title' ? (
               <p className="ww-hotspot__digest-note">未读原文，解读仅供参考，请以原文为准</p>
             ) : null}

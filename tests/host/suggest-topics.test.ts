@@ -361,7 +361,7 @@ describe('service.suggestTopics', () => {
     expect(fetchImpl.mock.calls.length).toBe(fetchesAfterBatch);
   });
 
-  it('热榜刷新产生新批次：建议缓存随 batchId 失效并重新生成', async () => {
+  it('进入页面重新拉取相同热榜：batchId 不变，建议缓存复用、不重复调模型', async () => {
     const llm = makeScriptedLlm(async () => textStream(linesFor(10)));
     const { service } = await makeService(llm.llm, { writingProfile: PROFILE });
 
@@ -370,7 +370,23 @@ describe('service.suggestTopics', () => {
     expect(firstSuggest.batchId).toBe(first.batchId);
     const callsAfterFirst = llm.calls.length;
 
+    // 再次进入页面：网络重新拉取，但条目内容相同 → 同一 batchId → 建议缓存命中。
     const second = await service.fetchHotspotBatch(30);
+    expect(second.batchId).toBe(first.batchId);
+    const secondSuggest = await service.suggestTopics({ count: 10 });
+    expect(secondSuggest.batchId).toBe(first.batchId);
+    expect(llm.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('手动刷新热榜（refresh=true）：强制新批次并重新生成建议', async () => {
+    const llm = makeScriptedLlm(async () => textStream(linesFor(10)));
+    const { service } = await makeService(llm.llm, { writingProfile: PROFILE });
+
+    const first = await service.fetchHotspotBatch(30);
+    await service.suggestTopics({ count: 10 });
+    const callsAfterFirst = llm.calls.length;
+
+    const second = await service.fetchHotspotBatch(30, { refresh: true });
     expect(second.batchId).not.toBe(first.batchId);
     const secondSuggest = await service.suggestTopics({ count: 10 });
     expect(secondSuggest.batchId).toBe(second.batchId);

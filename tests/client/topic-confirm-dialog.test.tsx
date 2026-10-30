@@ -69,8 +69,8 @@ vi.mock('@/client/components/bits', () => ({
 }));
 
 const analysisOk = () => ({
-  summary: 'AI 简介。',
-  angle: 'AI 角度。',
+  digest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+  angles: ['角度一：从成本结构切入', '角度二：对比闭源方案'],
   source: 'article',
   model: 'glm-4.5-flash',
   generatedAtIso: new Date().toISOString(),
@@ -112,14 +112,15 @@ beforeEach(() => {
 });
 
 describe('TopicConfirmDialog', () => {
-  it('展示标题、来源、原文链接与 AI 简介/分析角度', async () => {
+  it('展示标题、来源、原文链接与来自热门榜速览的内容/分析角度', async () => {
     render(<TopicConfirmDialog draft={hotspotDraft} onClose={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText('AI 简介。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/AI 简介/)).toBeTruthy());
     expect(screen.getByText('某热点')).toBeTruthy();
-    expect(screen.getByText('AI 角度。')).toBeTruthy();
+    expect(screen.getByText('角度一：从成本结构切入')).toBeTruthy();
+    expect(screen.getByText('角度二：对比闭源方案')).toBeTruthy();
     expect(screen.getByRole('link', { name: /打开原文/ }).getAttribute('href')).toBe(hotspotDraft.sourceUrl);
-    expect(mocks.call).toHaveBeenCalledWith('hotspots/analyze', {
+    expect(mocks.call).toHaveBeenCalledWith('hotspots/digestItem', {
       rank: hotspotDraft.sourceRank,
       title: hotspotDraft.sourceTitle,
       url: hotspotDraft.sourceUrl,
@@ -129,7 +130,7 @@ describe('TopicConfirmDialog', () => {
   it('无进行中任务：确认写这个 → 后台启动并关闭', async () => {
     const onClose = vi.fn();
     render(<TopicConfirmDialog draft={hotspotDraft} onClose={onClose} />);
-    await waitFor(() => expect(screen.getByText('AI 简介。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/AI 简介/)).toBeTruthy());
 
     await user.click(screen.getByRole('button', { name: '确认写这个' }));
 
@@ -143,7 +144,7 @@ describe('TopicConfirmDialog', () => {
 
   it('建议选题：展示推荐角度，确认时带 brief.title', async () => {
     render(<TopicConfirmDialog draft={suggestedDraft} onClose={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('AI 简介。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/AI 简介/)).toBeTruthy());
     expect(screen.getByText('推荐角度')).toBeTruthy();
     expect(screen.getByText('测试角度')).toBeTruthy();
 

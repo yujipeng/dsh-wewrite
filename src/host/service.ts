@@ -1,7 +1,7 @@
 /** WeWriteService（架构 §3）：host 级唯一服务；写操作串行化。重活已拆 images/wechat-flow/articles-store/schedules-store/views。 */
 
 import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotFetchView, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
 import { SettingsRecordSchema, type RunRecord, type ScheduleAction, type ScheduleRecord, type TopicCandidateRecord } from './domain';
@@ -174,7 +174,7 @@ export class WeWriteService {
       .map(runToSummary);
   }
 
-  async fetchHotspots(limit = 20): Promise<HotspotItem[]> {
+  async fetchHotspots(limit = 20, options: { refresh?: boolean } = {}): Promise<HotspotItem[]> {
     const sources = buildHotspotSources({
       aggregatorUrl: this.settings.hotspotAggregatorUrl,
       sources: this.settings.hotspotSources,
@@ -187,8 +187,19 @@ export class WeWriteService {
       this.logger.warn(truncateMessage(`热榜源 ${failure.sourceId} 拉取失败：${failure.message}`));
     }
     const batchItems = [...items];
+    // 内容指纹只取「来源 + 标题」并排序：热榜实时排名/顺序抖动不应触发建议重算；
+    // 只有条目集合真正变化、或用户手动刷新（refresh=true）时才产生新批次。
+    const fingerprint = createHash('sha1')
+      .update(
+        [...batchItems]
+          .map((item) => `${item.source}|${item.title}`)
+          .sort()
+          .join('\n'),
+      )
+      .digest('hex')
+      .slice(0, 12);
     this.hotspotBatch = {
-      batchId: `hb_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      batchId: options.refresh ? `hb_${randomUUID().replaceAll('-', '').slice(0, 12)}` : `hb_${fingerprint}`,
       items: batchItems,
       fetchedAtIso: this.nowIso(),
     };
@@ -196,8 +207,8 @@ export class WeWriteService {
   }
 
   /** 热榜 RPC 视图：条目 + 批次号，前端用 batchId 判断建议选题是否对应当前热榜。 */
-  async fetchHotspotBatch(limit = 20): Promise<HotspotFetchView> {
-    const items = await this.fetchHotspots(limit);
+  async fetchHotspotBatch(limit = 20, options: { refresh?: boolean } = {}): Promise<HotspotFetchView> {
+    const items = await this.fetchHotspots(limit, options);
     const batch = this.hotspotBatch;
     if (!batch) throw new WewriteServiceError('hotspot-batch-missing', '热榜批次未建立');
     return { items, batchId: batch.batchId, fetchedAtIso: batch.fetchedAtIso };

@@ -489,6 +489,31 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
 
 .ww-hotspot__digest-body > p { margin: 0; }
 
+/* 分析角度：与速览正文分层，列表可扫读（弹层复用同一份 angles） */
+.ww-hotspot__digest-angles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  margin-top: var(--ww-space-1);
+  padding-top: var(--ww-space-2);
+  border-top: var(--ww-border-width) solid var(--ww-divider);
+}
+
+.ww-hotspot__digest-angles-title {
+  margin: 0;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-fg-tertiary);
+}
+
+.ww-hotspot__digest-angles-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ww-fg-secondary);
+}
+
 /* ---------- 定时选题候选（选题页顶部） ---------- */
 
 .ww-candidates {
@@ -594,6 +619,35 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
 .ww-topic-dialog__label { font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); }
 
 .ww-topic-dialog__block p { margin: 0; font-size: var(--ww-text-sm); line-height: 1.65; color: var(--ww-fg); }
+
+.ww-topic-dialog__digest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ww-text-sm);
+  line-height: 1.65;
+  color: var(--ww-fg);
+}
+
+.ww-topic-dialog__digest > p { margin: 0; }
+
+.ww-topic-dialog__angles {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--ww-text-sm);
+  line-height: 1.65;
+  color: var(--ww-fg);
+}
+
+.ww-topic-dialog__note {
+  margin: 0;
+  font-size: var(--ww-text-xs);
+  line-height: 1.6;
+  color: var(--ww-fg-tertiary);
+}
 
 .ww-topic-dialog__conflict {
   margin: 0;

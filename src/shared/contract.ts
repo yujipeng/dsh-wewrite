@@ -104,7 +104,9 @@ const ConfigSetRequestSchema = z.strictObject({
 export const rpcContract: Record<string, { readonly request: z.ZodType; readonly response: z.ZodType }> = {
   snapshot: { request: EmptyRequest, response: SnapshotResponseSchema },
   'hotspots/fetch': {
-    request: z.strictObject({ limit: z.number().int().min(1).max(100).optional() }),
+    // refresh=true：用户手动刷新热榜——即使条目内容相同也强制新批次（重新生成建议）。
+    // 进入页面不传：按内容指纹复用批次，避免每次进页签都重算建议。
+    request: z.strictObject({ limit: z.number().int().min(1).max(100).optional(), refresh: z.boolean().optional() }),
     response: HotspotFetchViewSchema,
   },
   'hotspots/digestItem': {

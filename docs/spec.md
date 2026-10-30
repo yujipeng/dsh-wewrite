@@ -69,8 +69,9 @@
 |---|---|---|---|
 | `snapshot` | `{}` | `Snapshot{articles[],runs[],schedules[],config,serverNow,capabilities}` | 首拉全量+版本协商 |
 | `hotspots/fetch` | `{limit?}` | `HotspotFetchView{items[],batchId,fetchedAtIso}` | HN API+聚合源，单源失败隔离；每次拉取产生新批次 |
+| `hotspots/digestItem` | `{rank,title,url}` | `HotspotItemDigest{digest,angles[],source,model,generatedAtIso}` | 逐条速览（抓原文，失败降级标题）：正文 + 2–4 条分析角度；列表与确认弹层共用，按 URL 当日缓存 |
 | `hotspots/suggest` | `{count?,refresh?}` | `SuggestedTopicsView{topics[],generatedAtIso,model,profileUsed,totalHotspots,batchId}` | 复用当前热榜批次；缓存 key 绑定 batchId，热榜刷新即自动重算；同批次缓存 30 分钟，refresh 强制重算 |
-| `hotspots/analyze` | `{rank,title,url}` | `HotspotAnalysis{summary,angle,source,model,generatedAtIso}` | 选题确认弹层：一次 LLM 返回简介 + 可写角度；前端按 URL 当日缓存 |
+| `hotspots/analyze` | `{rank,title,url}` | `HotspotAnalysis{summary,angle,source,model,generatedAtIso}` | 兼容保留：确认弹层已改用 digestItem 的同一份数据，不再单独生成 |
 | `article/list` | `{}` | `ArticleListItem[]` | 轻量视图 |
 | `article/get` | `{id}` | `ArticleDetail` | 含 markdown |
 | `article/save` | `{id?,slug,title,digest,markdown,theme}` | `ArticleDetail` | 创建/更新 |
