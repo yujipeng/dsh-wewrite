@@ -12,6 +12,10 @@ export interface DigestCacheEntry {
   source: DigestSource;
   model: string;
   generatedAtIso: string;
+  /** I-09：原文报道链接 / 来源类型 / 边界说明（旧缓存可缺省）。 */
+  originUrl?: string;
+  sourceType?: 'hot' | 'demand' | 'evergreen';
+  note?: string;
 }
 
 const STORAGE_KEY = 'dsh-wewrite.hotspot-item-digests';
@@ -48,6 +52,11 @@ export function readCachedDigest(url: string): DigestCacheEntry | null {
     (entry.source !== 'article' && entry.source !== 'title') ||
     typeof entry.model !== 'string' ||
     typeof entry.generatedAtIso !== 'string' ||
+    (entry.originUrl !== undefined &&
+      (typeof entry.originUrl !== 'string' || !/^https?:\/\//.test(entry.originUrl))) ||
+    (entry.sourceType !== undefined &&
+      !['hot', 'demand', 'evergreen'].includes(entry.sourceType)) ||
+    (entry.note !== undefined && typeof entry.note !== 'string') ||
     !isSameLocalDay(entry.generatedAtIso)
   ) {
     return null;

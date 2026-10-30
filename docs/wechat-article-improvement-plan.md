@@ -1,6 +1,6 @@
 # 借鉴 wechat-article 全流程的改进计划
 
-> 状态：**Phase 1 已完成并真机验证**（2026-10-30：v1.0 tag 后启动；Phase 0 图像 spike、I-01 预检、I-02 尺寸/裁剪、I-03 压缩、I-04 回读、I-05 发布记录已完成；真机推送 `pushVerify.ok=true`）
+> 状态：**Phase 1/2 已完成并验证**（2026-10-30：Phase 0 图像 spike、I-01~I-09 已完成；真机推送 `pushVerify.ok=true`；Phase 2 已在选题页验证推荐/评分/来源类型/边界说明）
 > 日期：2026-10-29（2026-10-30 更新实施状态）
 > 对照基线：`~/Documents/wechat-article/`（2026-10-22 ~ 10-29，7 篇已推草稿）与 `~/Documents/wechat-article/.wewrite/`
 > 本文只描述「补什么、放在哪、怎么验收」，不含代码改动。
@@ -120,14 +120,14 @@
 
 ### 3.2 P1 — 选题与跨篇去重
 
-#### I-06 候选扩到 10 条
+#### I-06 候选扩到 10 条 ✅ 已完成（2026-10-30）
 
 - **问题**：`wewrite_suggest_topics` 上限 5 条（`src/host/agent-tools/suggest-topics.ts`），外部一次给 10 条供编辑挑选。
 - **做法**：上限提到 10；默认仍为 3，避免默认成本上升。逐条速览只对前 3 条生成，其余按需点开（复用现有逐条 digest + 当日缓存）。
 - **落点**：`src/host/agent-tools/suggest-topics.ts`、`src/host/service.ts`、`src/shared/contract.ts`。
 - **验收**：工具参数边界测试（0/1/10/11）；断言 10 条时 LLM 调用次数 ≤ 3。
 
-#### I-07 确定性打分与近 7 天去重
+#### I-07 确定性打分与近 7 天去重 ✅ 已完成（2026-10-30）
 
 - **问题**：当前选题完全靠人看榜单，没有可解释的排序，也没有跨篇去重。
 - **做法**：
@@ -137,14 +137,14 @@
 - **落点**：新增 `src/host/pipeline/steps/topic-score.ts`（纯函数 + 类型），`src/host/service.ts` 装配。
 - **验收**：固定输入固定输出的表驱动单测 ≥ 12 组（含并列分、无历史、全量重复三种边界）；扣分规则单测。
 
-#### I-08 候选字段与编辑推荐
+#### I-08 候选字段与编辑推荐 ✅ 已完成（2026-10-30）
 
 - **问题**：候选只有标题 + 来源 + 速览，缺少「为什么写这个」和「写了会不会重复」。
 - **做法**：`TopicCandidateRecord` 增加可选字段：`sourceType`（热点 / 高频需求 / 常青）、`originUrl`（原始报道）、`heat` / `relevance` / `value` / `score`、`idealClick`、`seo`、`framework`（观点型 / 热点解读 / 痛点型）、`reason`、`historyMark`。批次结果追加「已排除清单」与「编辑推荐（首选/次选/第三）」。
 - **落点**：`src/host/domain.ts`、`src/host/service.ts`、`src/client/panels/hotspots-panel.tsx`。
 - **验收**：schema 向后兼容（旧记录无新字段可读）；面板快照测试；推荐项必须存在于候选列表。
 
-#### I-09 热点来源类型与原文链接
+#### I-09 热点来源类型与原文链接 ✅ 已完成（2026-10-30）
 
 - **问题**：热榜条目只有一个 URL，写作时容易只基于标题；外部流程区分「热搜话题」与「原始报道」。
 - **做法**：速览阶段同时抽取原文链接（正文 `<link rel=canonical>` 或首个外链），区分 `topicUrl` 与 `originUrl`；速览输出增加一行「同题密度：N 篇 / 未检索」，并固定附上「不显示阅读量，不能推断爆款」的边界说明。

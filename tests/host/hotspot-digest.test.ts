@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchArticleText } from '@/host/hotspot-digest';
+import { extractOriginUrl, fetchArticleText, parseDigestOutput } from '@/host/hotspot-digest';
 import { WeWriteService } from '@/host/service';
 import { WewriteServiceError } from '@/host/service-errors';
 import type { LlmService } from '@/host/platform';
@@ -310,5 +310,36 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     expect(info.message).toContain('设置');
     expect(llm.calls.length).toBe(0);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('I-09 原文链接与来源类型', () => {
+  it('canonical 外链优先', () => {
+    const html = '<link rel="canonical" href="https://origin.test/a" />';
+    expect(extractOriginUrl(html, 'https://topic.test/x')).toBe('https://origin.test/a');
+  });
+
+  it('canonical 指向自身时取首个不同 host 外链，跳过分享域名', () => {
+    const html = [
+      '<link rel="canonical" href="https://topic.test/x" />',
+      '<a href="https://weibo.com/share">分享</a>',
+      '<a href="https://origin.test/b">原文</a>',
+    ].join('');
+    expect(extractOriginUrl(html, 'https://topic.test/x')).toBe('https://origin.test/b');
+  });
+
+  it('只接受 http(s)，相对链接不当作原文', () => {
+    const html = '<a href="javascript:alert(1)">x</a><a href="/relative">y</a>';
+    expect(extractOriginUrl(html, 'https://topic.test/x')).toBeUndefined();
+  });
+
+  it('parseDigestOutput：来源类型行移出正文并映射为枚举', () => {
+    const parsed = parseDigestOutput(
+      '来源类型：高频需求\n这条在讲什么：某引擎降价。\n· 要点：成本降七成。\n分析角度：\n- 从成本结构切入',
+    );
+    expect(parsed.sourceType).toBe('demand');
+    expect(parsed.digest).not.toContain('来源类型');
+    expect(parsed.digest).toContain('某引擎降价');
+    expect(parsed.angles).toEqual(['从成本结构切入']);
   });
 });

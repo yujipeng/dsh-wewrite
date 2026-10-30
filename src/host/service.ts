@@ -262,8 +262,19 @@ export class WeWriteService {
   async suggestTopics(input: { count?: number; refresh?: boolean } = {}): Promise<SuggestedTopicsView> {
     const count = Math.min(10, Math.max(1, input.count ?? 10));
     const batch = await this.ensureHotspotBatch();
-    const key = `${batch.batchId}:${count}:${JSON.stringify(this.settings.writingProfile)}`;
-    const now = this.nowFn().getTime();
+    const nowMs = this.nowFn().getTime();
+    // I-07：近 7 天文章标题作为确定性去重依据（不新增表，直接从 articles 派生）。
+    const historyTitles = [...this.tables.articles.entries()]
+      .map(([, article]) => article)
+      .filter((article) => {
+        if (typeof article.createdAt !== 'string') return false;
+        const created = Date.parse(article.createdAt);
+        return Number.isFinite(created) && created >= nowMs - 7 * 24 * 60 * 60 * 1000;
+      })
+      .map((article) => article.title);
+    const historyKey = createHash('sha1').update(historyTitles.join('|')).digest('hex').slice(0, 8);
+    const key = `${batch.batchId}:${count}:${historyKey}:${JSON.stringify(this.settings.writingProfile)}`;
+    const now = nowMs;
     if (!input.refresh && this.suggestCache?.key === key && now - this.suggestCache.at < SUGGEST_CACHE_TTL_MS) {
       return this.suggestCache.value;
     }
@@ -277,6 +288,7 @@ export class WeWriteService {
           model: this.state.settings.llmDefault.model,
           logger: this.logger,
           profile: this.settings.writingProfile,
+          history: { titles: historyTitles },
           timeoutMs: this.deps.suggestTimeoutMs ?? SUGGEST_TIMEOUT_MS,
           nowIso: () => this.nowIso(),
         },

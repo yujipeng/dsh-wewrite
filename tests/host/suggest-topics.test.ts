@@ -125,6 +125,11 @@ describe('parseSuggestedTopicLines', () => {
       sourceRank: 1,
       sourceTitle: '热点 1',
       sourceUrl: 'https://s.weibo.com/weibo?q=%E7%83%AD%E7%82%B9%201',
+      // 旧 4 段格式没有评分：默认 5，scoreTopic 加权仍为 5。
+      heat: 5,
+      relevance: 5,
+      value: 5,
+      score: 5,
     });
     expect(topics[9]?.title).toBe('建议标题10');
   });
@@ -196,6 +201,9 @@ describe('service.suggestTopics', () => {
     expect(result.totalHotspots).toBe(30);
     expect(result.model).toBe('glm-4.5-flash');
     expect(result.generatedAtIso).toBe(FIXED_NOW.toISOString());
+    // I-08：前三标题作为编辑推荐，且必须存在于候选列表；本批无黑名单排除。
+    expect(result.recommendations).toEqual(result.topics.slice(0, 3).map((topic) => topic.title));
+    expect(result.excluded).toEqual([]);
   });
 
   it('提示词：注入写作要求、黑名单与热榜编号；purpose/provider/model/maxTokens 契约', async () => {
@@ -297,11 +305,13 @@ describe('service.suggestTopics', () => {
       writingProfile: PROFILE,
     });
 
-    await service.suggestTopics({ count: 10 });
+    const result = await service.suggestTopics({ count: 10 });
 
     const user = userTextOf(llm.calls[0] ?? {});
     expect(user).not.toContain('裁员 20%');
     expect(user).toContain('热点 A');
+    // I-08：被排除的热榜标题进入 excluded（面板展示「已排除」）。
+    expect(result.excluded).toContain('某公司裁员 20%');
   });
 
   it('全部热点被黑名单排除：suggest-no-hotspots，零 LLM 调用', async () => {

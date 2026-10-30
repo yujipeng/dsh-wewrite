@@ -269,6 +269,49 @@
   overflow: hidden;
 }
 
+/* I-08：编辑推荐 / 来源类型 / 确定性总分 / 推荐理由 / 近 7 天去重标记 */
+.ww-suggest__rec,
+.ww-suggest__type,
+.ww-suggest__score,
+.ww-suggest__reason,
+.ww-suggest__history {
+  grid-column: 2;
+  justify-self: start;
+  font-size: var(--ww-text-xs);
+  line-height: 1.5;
+}
+
+.ww-suggest__rec {
+  color: var(--ww-accent);
+  font-weight: var(--ww-weight-medium);
+}
+
+.ww-suggest__type {
+  padding: 0 var(--ww-space-2);
+  border: var(--ww-border-width) solid var(--ww-divider);
+  border-radius: var(--ww-radius-full);
+  color: var(--ww-fg-secondary);
+}
+
+.ww-suggest__score {
+  font-family: var(--ww-font-code);
+  color: var(--ww-fg-secondary);
+}
+
+.ww-suggest__reason {
+  color: var(--ww-fg-tertiary);
+}
+
+.ww-suggest__history {
+  color: var(--ww-warning);
+}
+
+.ww-suggest__excluded {
+  margin: var(--ww-space-2) 0 0;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-fg-tertiary);
+}
+
 .ww-suggest__source {
   display: block;
   margin-left: calc(1.5em + var(--ww-space-4));
@@ -443,6 +486,18 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
   color: var(--ww-fg-tertiary);
 }
 
+/* I-09 来源类型徽记（热点/高频需求/常青）：中性 pill，与 source 徽记并列 */
+.ww-hotspot__digest-type {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--ww-text-xs);
+  padding: 2px var(--ww-space-2);
+  border: var(--ww-border-width) solid var(--ww-divider);
+  border-radius: var(--ww-radius-full);
+  color: var(--ww-fg-secondary);
+  white-space: nowrap;
+}
+
 .ww-hotspot__digest-time {
   font-size: var(--ww-text-xs);
   color: var(--ww-fg-caption);
@@ -472,6 +527,16 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
   margin: var(--ww-space-1) 0 0;
   font-size: var(--ww-text-xs);
   color: var(--ww-fg-tertiary);
+}
+
+/* I-09 原文报道链接（速览底部） */
+.ww-hotspot__digest-origin {
+  margin: var(--ww-space-1) 0 0;
+  font-size: var(--ww-text-xs);
+}
+.ww-hotspot__digest-origin a {
+  color: var(--ww-accent);
+  text-decoration: underline;
 }
 
 .ww-hotspot__digest-lead { margin: 0; }
@@ -610,6 +675,17 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
   font-size: var(--ww-text-xs);
   font-weight: normal;
   color: var(--ww-fg-tertiary);
+}
+
+/* I-09 弹层来源类型徽记 */
+.ww-topic-dialog__analysis-type {
+  font-size: var(--ww-text-xs);
+  font-weight: normal;
+  padding: 1px var(--ww-space-2);
+  border: var(--ww-border-width) solid var(--ww-divider);
+  border-radius: var(--ww-radius-full);
+  color: var(--ww-fg-secondary);
+  white-space: nowrap;
 }
 
 .ww-topic-dialog__wait { margin: 0; font-size: var(--ww-text-xs); color: var(--ww-fg-tertiary); }

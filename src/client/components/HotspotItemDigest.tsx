@@ -88,6 +88,9 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
         source: result.source,
         model: result.model,
         generatedAtIso: result.generatedAtIso,
+        ...(result.originUrl ? { originUrl: result.originUrl } : {}),
+        ...(result.sourceType ? { sourceType: result.sourceType } : {}),
+        ...(result.note ? { note: result.note } : {}),
       };
       writeCachedDigest(item.url, next);
       clearDigestFailure(item.url);
@@ -112,6 +115,9 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
   const busy = phase === 'loading';
   const failure = phase === 'error' ? describeDigestError(message) : undefined;
   const sourceLabel = entry?.source === 'article' ? '读了原文' : '仅凭标题';
+  const sourceTypeLabel = entry?.sourceType
+    ? ({ hot: '热点', demand: '高频需求', evergreen: '常青' } as const)[entry.sourceType]
+    : undefined;
 
   return (
     <div className="ww-hotspot__digest" data-testid="ww-hotspot-digest">
@@ -127,6 +133,11 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
               <Icon name={entry.source === 'article' ? 'check' : 'eye-off'} size={12} />
               {sourceLabel}
             </span>
+            {sourceTypeLabel ? (
+              <span className="ww-hotspot__digest-type" data-testid="ww-hotspot-digest-type">
+                {sourceTypeLabel}
+              </span>
+            ) : null}
             <span className="ww-hotspot__digest-time">{formatTime(entry.generatedAtIso)}</span>
           </>
         ) : null}
@@ -172,6 +183,14 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
                 </ol>
               </div>
             ) : null}
+            {entry.originUrl ? (
+              <p className="ww-hotspot__digest-origin">
+                <a href={entry.originUrl} target="_blank" rel="noreferrer">
+                  原文报道
+                </a>
+              </p>
+            ) : null}
+            {entry.note ? <p className="ww-hotspot__digest-note">{entry.note}</p> : null}
             {entry.source === 'title' ? (
               <p className="ww-hotspot__digest-note">未读原文，解读仅供参考，请以原文为准</p>
             ) : null}

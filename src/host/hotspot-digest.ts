@@ -122,11 +122,17 @@ export function extractArticleText(html: string): string | null {
  * 抓 url 并抽正文：8s 超时、跟随重定向、只收 text/html、2MB 截断。
  * 任何失败（网络/状态码/类型/超时/正文过短）返回 null——降级信号，不抛错。
  */
-export async function fetchArticleText(
+export interface FetchedArticle {
+  readonly text: string;
+  readonly html: string;
+  readonly finalUrl: string;
+}
+
+export async function fetchArticle(
   url: string,
   fetchImpl: typeof fetch,
   timeoutMs: number = FETCH_TIMEOUT_MS,
-): Promise<string | null> {
+): Promise<FetchedArticle | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -138,12 +144,90 @@ export async function fetchArticleText(
     if (!response.ok) return null;
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
     if (!contentType.startsWith('text/html')) return null;
-    return extractArticleText(await readBodyCapped(response));
+    const html = await readBodyCapped(response);
+    const text = extractArticleText(html);
+    if (text === null) return null;
+    return { text, html, finalUrl: response.url || url };
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 兼容旧调用面：只取正文（抓取失败返回 null）。 */
+export async function fetchArticleText(
+  url: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number = FETCH_TIMEOUT_MS,
+): Promise<string | null> {
+  const article = await fetchArticle(url, fetchImpl, timeoutMs);
+  return article?.text ?? null;
+}
+
+const SHARE_HOSTS = new Set([
+  'weibo.com',
+  't.cn',
+  'twitter.com',
+  'x.com',
+  'facebook.com',
+  'linkedin.com',
+  'qq.com',
+  'douyin.com',
+  'weixin.qq.com',
+  'youtube.com',
+  'instagram.com',
+]);
+
+function readAttr(tag: string, name: string): string | null {
+  const match = tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'));
+  return match?.[1] ?? null;
+}
+
+function absoluteHttpUrl(value: string, baseUrl: string): string | null {
+  try {
+    const url = new URL(value, baseUrl);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * I-09：从抓取到的 HTML 里抽取原文报道链接。
+ * 优先 canonical / og:url（且 host 与当前页不同）；否则取首个不同 host 的外链。
+ * 只接受 http(s)，社交分享域名与图片资源跳过。
+ */
+export function extractOriginUrl(html: string, baseUrl: string): string | undefined {
+  const baseHost = hostOf(baseUrl).toLowerCase();
+  const declared: string[] = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    if ((readAttr(tag, 'rel') ?? '').toLowerCase() !== 'canonical') continue;
+    const href = readAttr(tag, 'href');
+    if (href) declared.push(href);
+  }
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    if ((readAttr(tag, 'property') ?? '').toLowerCase() !== 'og:url') continue;
+    const content = readAttr(tag, 'content');
+    if (content) declared.push(content);
+  }
+  for (const candidate of declared) {
+    const url = absoluteHttpUrl(candidate, baseUrl);
+    if (url && hostOf(url).toLowerCase() !== baseHost) return url;
+  }
+
+  for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
+    const href = readAttr(tag, 'href');
+    if (!href) continue;
+    const url = absoluteHttpUrl(href, baseUrl);
+    if (!url) continue;
+    const host = hostOf(url).toLowerCase();
+    if (!host || host === baseHost) continue;
+    if ([...SHARE_HOSTS].some((share) => host === share || host.endsWith(`.${share}`))) continue;
+    if (/\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(url)) continue;
+    return url;
+  }
+  return undefined;
 }
 
 // ── 提示词（输出行结构纯文本，不依赖 markdown 解析）────────────────────────────
@@ -166,6 +250,7 @@ function digestItemArticleUserPrompt(title: string, domain: string, body: string
     body,
     '',
     '请严格按以下行结构输出纯文本（不加 Markdown 记号、不加额外说明）：',
+    '来源类型：热点 / 高频需求 / 常青（三选一）',
     '这条在讲什么：一句话概括核心事件',
     '· 要点：具体事实或数字（2 到 4 行，每行一个）',
     '分析角度：',
@@ -181,6 +266,7 @@ function digestItemTitleUserPrompt(title: string, domain: string): string {
     `来源域名：${domain}`,
     '',
     '请严格按以下行结构输出纯文本（不加 Markdown 记号、不加额外说明）：',
+    '来源类型：热点 / 高频需求 / 常青（三选一）',
     '标题解读：中文译名，加一句话说明在讲什么',
     '· 要点：从标题可推断的事实或变化（1 到 2 行，每行一个）',
     '分析角度：',
@@ -191,13 +277,26 @@ function digestItemTitleUserPrompt(title: string, domain: string): string {
 
 // ── 输出解析：速览正文 + 分析角度 ────────────────────────────────────────────
 
+const SOURCE_TYPE_MAP = {
+  热点: 'hot',
+  高频需求: 'demand',
+  常青: 'evergreen',
+} as const;
+
+export type DigestSourceType = (typeof SOURCE_TYPE_MAP)[keyof typeof SOURCE_TYPE_MAP];
+
 /**
- * 把模型输出拆成「速览正文」与「分析角度」两段：
+ * 把模型输出拆成「速览正文」「分析角度」与「来源类型」：
  * - 命中 `分析角度：` / `可写角度：` 等表头后，后续行全部归入 angles；
+ * - 命中 `来源类型：热点|高频需求|常青` 时移除该行，映射为 sourceType；
  * - 兼容表头内联多条（分号分隔）与编号/列表符号；
  * - 没有表头时 angles 为空，正文原样保留。
  */
-export function parseDigestOutput(text: string): { digest: string; angles: string[] } {
+export function parseDigestOutput(text: string): {
+  digest: string;
+  angles: string[];
+  sourceType?: DigestSourceType;
+} {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -205,9 +304,15 @@ export function parseDigestOutput(text: string): { digest: string; angles: strin
   const digestLines: string[] = [];
   const angles: string[] = [];
   let inAngles = false;
+  let sourceType: DigestSourceType | undefined;
 
   for (const line of lines) {
     const normalized = line.replace(/^\s*[-*·•]\s*/, '').replace(/\*\*/g, '').trim();
+    const sourceTypeMatch = normalized.match(/^来源类型\s*[:：]\s*(热点|高频需求|常青)/);
+    if (sourceTypeMatch) {
+      sourceType = SOURCE_TYPE_MAP[sourceTypeMatch[1] as keyof typeof SOURCE_TYPE_MAP];
+      continue;
+    }
     const header = normalized.match(/^(?:分析角度|可写角度|写作角度|角度)\s*[:：]\s*(.*)$/);
     if (header) {
       inAngles = true;
@@ -231,10 +336,13 @@ export function parseDigestOutput(text: string): { digest: string; angles: strin
   return {
     digest: digestLines.join('\n').trim(),
     angles: angles.slice(0, 4),
+    ...(sourceType ? { sourceType } : {}),
   };
 }
 
 // ── digestItem 服务逻辑 ──────────────────────────────────────────────────────
+
+const DIGEST_BOUNDARY_NOTE = '同题密度：未检索（当前未接入跨源检索）；不显示阅读量，不能推断爆款。';
 
 export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDigestItem): Promise<HotspotItemDigest> {
   const startedAt = Date.now();
@@ -242,7 +350,9 @@ export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDi
   if (!provider || !model) {
     throw new WewriteServiceError('llm-not-configured', '尚未配置默认模型：请先到「设置」里选择 AI 供应商与模型，再生成速览');
   }
-  const articleText = await fetchArticleText(item.url, deps.fetchImpl ?? fetch);
+  const article = await fetchArticle(item.url, deps.fetchImpl ?? fetch);
+  const articleText = article?.text ?? null;
+  const originUrl = article ? extractOriginUrl(article.html, article.finalUrl) : undefined;
   const domain = hostOf(item.url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
@@ -276,9 +386,18 @@ export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDi
     const parsed = parseDigestOutput(outcome.text);
     const digestText = parsed.digest || outcome.text.trim();
     deps.logger.info(
-      `hotspot item digest ok：rank=${item.rank} source=${source} model=${model} body=${articleText?.length ?? 0} angles=${parsed.angles.length} ${Date.now() - startedAt}ms`,
+      `hotspot item digest ok：rank=${item.rank} source=${source} model=${model} body=${articleText?.length ?? 0} angles=${parsed.angles.length} origin=${originUrl ? 'yes' : 'no'} type=${parsed.sourceType ?? '-'} ${Date.now() - startedAt}ms`,
     );
-    return { digest: digestText, angles: parsed.angles, source, model, generatedAtIso: deps.nowIso() };
+    return {
+      digest: digestText,
+      angles: parsed.angles,
+      source,
+      model,
+      generatedAtIso: deps.nowIso(),
+      ...(originUrl ? { originUrl } : {}),
+      ...(parsed.sourceType ? { sourceType: parsed.sourceType } : {}),
+      note: DIGEST_BOUNDARY_NOTE,
+    };
   } catch (error) {
     const code = error instanceof WewriteServiceError ? error.code : 'unknown';
     deps.logger.warn(`hotspot item digest failed（rank=${item.rank} ${code}）：${error instanceof Error ? error.message : String(error)}`);

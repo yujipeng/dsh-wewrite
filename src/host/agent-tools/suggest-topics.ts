@@ -9,7 +9,9 @@ import type { WeWriteService } from '../service';
 import { asArgsRecord, callView, coerceInteger, jsonSchema, resultView, textBlocks, toolError } from './output-helpers';
 
 const COUNT_DEFAULT = 3;
-const COUNT_MAX = 5;
+const COUNT_MAX = 10;
+/** 逐条 AI 速览只对前 N 条生成；其余候选按需点开（复用 digest 当日缓存）。 */
+const DIGEST_LIMIT = 3;
 
 interface TopicCandidate {
   readonly title: string;
@@ -21,7 +23,7 @@ export function buildSuggestTopicsTool(service: WeWriteService): WewriteToolDefi
   return {
     name: 'wewrite_suggest_topics',
     description:
-      '从热榜抓取候选选题（默认 3 条，上限 5 条）并逐条生成一句话 AI 速览，供用户挑一个再启动写作管线。'
+      '从热榜抓取候选选题（默认 3 条，上限 10 条；前 3 条附一句话 AI 速览）供用户挑一个再启动写作管线。'
       + '仅在用户表达「不知道写什么 / 给我推荐选题」类意图时调用；呈现候选后等用户选定，不要擅自直接开跑管线。',
     timeoutMs: 60000,
     parameters: {
@@ -64,12 +66,14 @@ export function buildSuggestTopicsTool(service: WeWriteService): WewriteToolDefi
         return { topics: [], ...toolError('hotspots-failed', `热榜拉取失败：${error instanceof Error ? error.message : String(error)}`) };
       }
       const topics: TopicCandidate[] = [];
-      for (const item of hotspots.slice(0, rawCount)) {
+      for (const [index, item] of hotspots.slice(0, rawCount).entries()) {
         const record = asArgsRecord(item);
         topics.push({
           title: String(record.title ?? ''),
           source: String(record.source ?? ''),
-          digest: await safeDigest(service, item),
+          digest: index < DIGEST_LIMIT
+            ? await safeDigest(service, item)
+            : '速览按需生成：选定候选后再查看。',
         });
       }
       return { ok: true, topics };

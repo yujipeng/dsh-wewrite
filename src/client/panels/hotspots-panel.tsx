@@ -432,31 +432,62 @@ export function HotspotsPanel() {
               }
             />
           ) : suggested && suggested.topics.length > 0 ? (
+            <>
             <ol className="ww-suggest__list">
-              {suggested.topics.map((topic, index) => (
-                <li key={`${topic.source}-${topic.sourceRank}-${index}`} className="ww-suggest__item">
-                  <button
-                    type="button"
-                    className="ww-suggest__main"
-                    aria-label={`写这个：${topic.title}`}
-                    onClick={() => openSuggestedDraft(topic)}
-                  >
-                    <span className="ww-suggest__rank">{index + 1}</span>
-                    <span className="ww-suggest__title">{topic.title}</span>
-                    <span className="ww-suggest__angle">{topic.angle}</span>
-                  </button>
-                  {isHttpUrl(topic.sourceUrl) ? (
-                    <a className="ww-suggest__source" href={topic.sourceUrl} target="_blank" rel="noreferrer" title={topic.sourceTitle}>
-                      源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
-                    </a>
-                  ) : (
-                    <span className="ww-suggest__source">
-                      源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
-                    </span>
-                  )}
-                </li>
-              ))}
+              {suggested.topics.map((topic, index) => {
+                const recommendationIndex = suggested.recommendations?.indexOf(topic.title) ?? -1;
+                return (
+                  <li key={`${topic.source}-${topic.sourceRank}-${index}`} className="ww-suggest__item">
+                    <button
+                      type="button"
+                      className="ww-suggest__main"
+                      aria-label={`写这个：${topic.title}`}
+                      onClick={() => openSuggestedDraft(topic)}
+                    >
+                      <span className="ww-suggest__rank">{index + 1}</span>
+                      <span className="ww-suggest__title">{topic.title}</span>
+                      {recommendationIndex >= 0 ? (
+                        <span className="ww-suggest__rec" data-testid="ww-suggest-rec">
+                          {(['首选', '次选', '第三'] as const)[recommendationIndex] ?? '推荐'}
+                        </span>
+                      ) : null}
+                      {topic.sourceType ? (
+                        <span className="ww-suggest__type" data-testid="ww-suggest-type">
+                          {({ hot: '热点', demand: '高频需求', evergreen: '常青' } as const)[topic.sourceType]}
+                        </span>
+                      ) : null}
+                      {typeof topic.score === 'number' ? (
+                        <span className="ww-suggest__score" data-testid="ww-suggest-score" title="确定性总分（热度 0.3 / 相关度 0.4 / 切入价值 0.3）">
+                          {topic.score.toFixed(1)}
+                        </span>
+                      ) : null}
+                      <span className="ww-suggest__angle">{topic.angle}</span>
+                      {topic.reason ? <span className="ww-suggest__reason">{topic.reason}</span> : null}
+                      {topic.historyMark ? (
+                        <span className="ww-suggest__history" data-testid="ww-suggest-history">
+                          {topic.historyMark}
+                        </span>
+                      ) : null}
+                    </button>
+                    {isHttpUrl(topic.sourceUrl) ? (
+                      <a className="ww-suggest__source" href={topic.sourceUrl} target="_blank" rel="noreferrer" title={topic.sourceTitle}>
+                        源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
+                      </a>
+                    ) : (
+                      <span className="ww-suggest__source">
+                        源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
+            {suggested.excluded && suggested.excluded.length > 0 ? (
+              <p className="ww-suggest__excluded" data-testid="ww-suggest-excluded">
+                已排除：{suggested.excluded.join('、')}
+              </p>
+            ) : null}
+            </>
           ) : (
             <p className="ww-aside-empty">这次没有筛出合适的选题。刷新热榜或调整写作要求后再试。</p>
           )}

@@ -560,14 +560,25 @@ describe('wewrite_suggest_topics execute（AC-M3-04，Spec §5 增补第 5 工�
     if (parsed.success) expect(parsed.data.topics).toHaveLength(3);
   });
 
-  it('Spec §5: count 上限 5（count=5 全量速览）', async () => {
-    const { service, agent } = setup();
-    const value = (await (agent.tool('wewrite_suggest_topics').execute as (a: unknown, e: unknown) => Promise<unknown>)({ count: 5 }, exec)) as { topics?: unknown[] };
-    expect(service.digestHotspotItem).toHaveBeenCalledTimes(5);
-    expect(value.topics).toHaveLength(5);
+  it('Spec §5: count 上限 10（count=10 时只对前 3 条生成速览）', async () => {
+    const service = makeFakeService({
+      fetchHotspots: vi.fn(async () =>
+        Array.from({ length: 10 }, (_, index) => ({
+          title: `热榜话题 ${index + 1}`,
+          source: 'hackernews',
+          rank: index + 1,
+          url: `https://x.example.test/${index + 1}`,
+        })),
+      ),
+    });
+    const { agent } = setup({ service });
+    const value = (await (agent.tool('wewrite_suggest_topics').execute as (a: unknown, e: unknown) => Promise<unknown>)({ count: 10 }, exec)) as { topics?: Array<Record<string, unknown>> };
+    expect(service.digestHotspotItem).toHaveBeenCalledTimes(3);
+    expect(value.topics).toHaveLength(10);
+    expect((value.topics ?? []).slice(3).every((topic) => String(topic.digest).includes('按需生成'))).toBe(true);
   });
 
-  it.each([0, -1, 6, 2.5])('count 越界（%s）→ 结构化错误，热榜零调用（AC-M1-03 同款越界语义）', async (count) => {
+  it.each([0, -1, 11, 2.5])('count 越界（%s）→ 结构化错误，热榜零调用（AC-M1-03 同款越界语义）', async (count) => {
     const { service, agent } = setup();
     const value = await (agent.tool('wewrite_suggest_topics').execute as (a: unknown, e: unknown) => Promise<unknown>)({ count }, exec);
     expect(asToolError(value).ok).toBe(false);

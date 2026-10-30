@@ -91,12 +91,25 @@ const suggestedResponse = (profileUsed = true) => ({
     sourceRank: index + 1,
     sourceTitle: `热点${index + 1}`,
     sourceUrl: `https://s.weibo.com/weibo?q=${index + 1}`,
+    ...(index === 0
+      ? {
+          heat: 9,
+          relevance: 8,
+          value: 7,
+          score: 8.2,
+          reason: '推荐理由一',
+          sourceType: 'hot',
+          historyMark: '近 7 天已写：旧文',
+        }
+      : {}),
   })),
   generatedAtIso: '2026-08-20T12:00:00.000Z',
   model: 'glm-4.5-flash',
   profileUsed,
   totalHotspots: 30,
   batchId: 'hb_test_001',
+  recommendations: ['建议标题1', '建议标题2', '建议标题3'],
+  excluded: ['被排除热点'],
 });
 
 const suggestCalls = () => mocks.call.mock.calls.filter(([endpoint]) => endpoint === 'hotspots/suggest');
@@ -120,6 +133,11 @@ describe('HotspotsPanel 建议选题', () => {
 
     expect(screen.getAllByRole('button', { name: /^写这个：/ })).toHaveLength(10);
     expect(screen.getByText('源自 微博 #1 · 热点1')).toBeTruthy();
+    expect(screen.getAllByTestId('ww-suggest-rec')[0]?.textContent).toBe('首选');
+    expect(screen.getByTestId('ww-suggest-type').textContent).toBe('热点');
+    expect(screen.getByTestId('ww-suggest-score').textContent).toBe('8.2');
+    expect(screen.getByTestId('ww-suggest-history').textContent).toBe('近 7 天已写：旧文');
+    expect(screen.getByTestId('ww-suggest-excluded').textContent).toContain('被排除热点');
     expect(suggestCalls()[0]?.[1]).toEqual({ count: 10 });
   });
 

@@ -9,6 +9,7 @@
 import type { HotspotItem, SuggestedTopicView } from '../shared/contract';
 import type { WritingProfile } from '../shared/schema-base';
 import { streamLlmText, writingProfileLines, type LlmStepOutcome, type PipelineLlm } from './pipeline/llm';
+import { scoreTopic, type TopicHistory } from './pipeline/steps/topic-score';
 import type { HostLogger } from './platform';
 import { WewriteServiceError } from './service-errors';
 
@@ -19,6 +20,8 @@ export interface SuggestTopicsDeps {
   readonly model?: string;
   readonly logger: HostLogger;
   readonly profile: WritingProfile;
+  /** 近 7 天历史（文章标题 + 手动关键词），用于确定性去重扣分。 */
+  readonly history?: TopicHistory;
   /** 单次 LLM 调用超时毫秒（默认 45s；测试注入缩短值验证 abort 分支）。 */
   readonly timeoutMs: number;
   readonly nowIso: () => string;
@@ -30,6 +33,10 @@ export interface SuggestTopicsOutcome {
   readonly model: string;
   readonly profileUsed: boolean;
   readonly totalHotspots: number;
+  /** I-08：被写作要求/禁用词排除的热榜标题（最多 5 条，供面板说明）。 */
+  readonly excluded: string[];
+  /** I-08：按确定性总分排序后的前三标题（首选/次选/第三）。 */
+  readonly recommendations: string[];
 }
 
 /** 单次调用上限（bigmodel 带 thinking 时 max_tokens 必须 >32000，与速览/改写同口径）。 */
@@ -110,9 +117,9 @@ function buildUserPrompt(input: {
     ...hotspotLines,
     '',
     '【输出格式】',
-    `严格输出最多 ${count} 行，每行四个字段，用「|||」分隔：`,
-    '序号 ||| 建议标题 ||| 一句话角度 ||| 热点序号',
-    '其中「热点序号」是上面方括号里的编号。',
+    `严格输出最多 ${count} 行，每行八个字段，用「|||」分隔：`,
+    '序号 ||| 建议标题 ||| 一句话角度 ||| 热点序号 ||| 热度(0-10) ||| 相关度(0-10) ||| 切入价值(0-10) ||| 推荐理由',
+    '其中「热点序号」是上面方括号里的编号；评分按 0–10 给整数或一位小数，推荐理由不超过 40 字。',
     ...(input.correction ? ['', `【纠正】${input.correction}`] : []),
   ].join('\n');
 }
@@ -137,15 +144,23 @@ function clamp(value: string, max: number): string {
   return value.length > max ? value.slice(0, max).trim() : value;
 }
 
+function scoreOf(value: string | undefined): number {
+  const parsed = Number.parseFloat(cleanField(value ?? ''));
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(10, Math.max(0, parsed));
+}
+
 /**
- * 解析模型输出：每行 `序号 ||| 标题 ||| 角度 ||| 热点序号`。
+ * 解析模型输出：每行 `序号 ||| 标题 ||| 角度 ||| 热点序号 ||| 热度 ||| 相关度 ||| 价值 ||| 理由`。
  * 失败行静默跳过；标题去重、来源越界丢弃、黑名单二次过滤；最多 count 条。
+ * 分数缺失时默认 5；最终按 scoreTopic 的确定性总分排序（稳定排序保留模型推荐次序）。
  */
 export function parseSuggestedTopicLines(
   text: string,
   hotspots: readonly HotspotItem[],
   count: number,
   profile: WritingProfile,
+  history: TopicHistory = {},
 ): SuggestedTopicView[] {
   const terms = blockedTerms(profile);
   const seen = new Set<string>();
@@ -156,23 +171,31 @@ export function parseSuggestedTopicLines(
     const line = rawLine.trim();
     if (!line) continue;
     const parts = line.split('|||').map((part) => part.trim());
-    // 兼容 4 段（序号 ||| 标题 ||| 角度 ||| 来源）与 3 段（标题 ||| 角度 ||| 来源）。
     if (parts.length < 3) continue;
     const headIsIndex = /^\d{1,3}$/.test(cleanField(parts[0] ?? ''));
-    const title = clamp(cleanField(parts[headIsIndex ? 1 : 0] ?? ''), TITLE_MAX_CHARS);
-    const angle = clamp(cleanField(parts[headIsIndex ? 2 : 1] ?? ''), ANGLE_MAX_CHARS);
+    const base = headIsIndex ? 1 : 0;
+    const title = clamp(cleanField(parts[base] ?? ''), TITLE_MAX_CHARS);
+    const angle = clamp(cleanField(parts[base + 1] ?? ''), ANGLE_MAX_CHARS);
     if (!title || !angle || seen.has(title)) continue;
 
-    // 热点序号取来源段里最后一个纯数字（容忍模型在末尾多带字段）。
-    const sourceNumberText = [...parts.slice(headIsIndex ? 3 : 2)]
-      .map((part) => cleanField(part))
-      .reverse()
-      .find((part) => /^\d{1,3}$/.test(part));
+    // 热点序号固定在第 4 字段；旧 4 段格式同位置，兼容模型在末尾多带字段。
+    const sourceNumberText =
+      (cleanField(parts[base + 2] ?? '').match(/^\d{1,3}$/)?.[0])
+      ?? [...parts.slice(base + 3)]
+        .map((part) => cleanField(part))
+        .reverse()
+        .find((part) => /^\d{1,3}$/.test(part));
     if (!sourceNumberText) continue;
     const sourceNumber = Number.parseInt(sourceNumberText, 10);
     const hotspot = hotspots[sourceNumber - 1];
     if (!hotspot) continue;
     if (hitsBlocked(`${title} ${angle}`, terms)) continue;
+
+    const heat = scoreOf(parts[base + 3]);
+    const relevance = scoreOf(parts[base + 4]);
+    const value = scoreOf(parts[base + 5]);
+    const reason = clamp(cleanField(parts[base + 6] ?? ''), 200);
+    const scored = scoreTopic({ title, heat, relevance, value }, history);
 
     seen.add(title);
     topics.push({
@@ -182,9 +205,17 @@ export function parseSuggestedTopicLines(
       sourceRank: hotspot.rank,
       sourceTitle: hotspot.title,
       sourceUrl: hotspot.url,
+      heat,
+      relevance,
+      value,
+      score: scored.score,
+      ...(reason ? { reason } : {}),
+      ...(scored.historyMark ? { historyMark: scored.historyMark } : {}),
     });
   }
 
+  // 确定性总分排序；JS sort 稳定，同分保留模型原推荐次序。
+  topics.sort((left, right) => (right.score ?? 0) - (left.score ?? 0));
   return topics;
 }
 
@@ -253,7 +284,7 @@ export async function suggestTopics(
       continue;
     }
 
-    const topics = parseSuggestedTopicLines(outcome.text, candidates, target, deps.profile);
+    const topics = parseSuggestedTopicLines(outcome.text, candidates, target, deps.profile, deps.history);
     if (topics.length > 0) {
       deps.logger.info(
         `suggest topics ok：${topics.length}/${target} 条，热榜 ${hotspots.length} 条，model=${model} ${Date.now() - startedAt}ms`,
@@ -264,6 +295,11 @@ export async function suggestTopics(
         model,
         profileUsed: hasWritingProfile(deps.profile),
         totalHotspots: hotspots.length,
+        excluded: hotspots
+          .filter((item) => hitsBlocked(item.title, blockedTerms(deps.profile)))
+          .map((item) => item.title)
+          .slice(0, 5),
+        recommendations: topics.slice(0, 3).map((topic) => topic.title),
       };
     }
     if (attempt === MAX_ATTEMPTS) {

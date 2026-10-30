@@ -133,6 +133,18 @@ export const TopicCandidateRecordSchema = z.strictObject({
   rank: z.number().int().min(1),
   digest: z.string().optional(),
   createdAt: z.string(),
+  /** I-08：候选字段（全部可选，旧记录无新字段可读）。 */
+  sourceType: z.enum(['hot', 'demand', 'evergreen']).optional(),
+  originUrl: z.string().optional(),
+  heat: z.number().min(0).max(10).optional(),
+  relevance: z.number().min(0).max(10).optional(),
+  value: z.number().min(0).max(10).optional(),
+  score: z.number().min(0).max(10).optional(),
+  idealClick: z.string().max(200).optional(),
+  seo: z.string().max(200).optional(),
+  framework: z.enum(['opinion', 'hot-take', 'pain-point']).optional(),
+  reason: z.string().max(300).optional(),
+  historyMark: z.string().max(300).optional(),
 });
 export type TopicCandidateRecord = z.infer<typeof TopicCandidateRecordSchema>;
 

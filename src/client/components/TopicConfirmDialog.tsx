@@ -180,9 +180,16 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
             <Icon name="wand-sparkles" size={16} />
             <span>AI 分析</span>
             {analysis.status === 'ready' ? (
-              <span className="ww-topic-dialog__analysis-source">
-                {analysis.data.source === 'article' ? '读了原文' : '仅凭标题'}
-              </span>
+              <>
+                <span className="ww-topic-dialog__analysis-source">
+                  {analysis.data.source === 'article' ? '读了原文' : '仅凭标题'}
+                </span>
+                {analysis.data.sourceType ? (
+                  <span className="ww-topic-dialog__analysis-type" data-testid="ww-topic-dialog-source-type">
+                    {({ hot: '热点', demand: '高频需求', evergreen: '常青' } as const)[analysis.data.sourceType]}
+                  </span>
+                ) : null}
+              </>
             ) : null}
           </div>
 
@@ -227,6 +234,14 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
                   <p>这次没有给出角度，可以直接写。</p>
                 )}
               </div>
+              {analysis.data.originUrl ? (
+                <p className="ww-topic-dialog__note">
+                  <a className="ww-link" href={analysis.data.originUrl} target="_blank" rel="noreferrer">
+                    原文报道
+                  </a>
+                </p>
+              ) : null}
+              {analysis.data.note ? <p className="ww-topic-dialog__note">{analysis.data.note}</p> : null}
               {analysis.data.source === 'title' ? (
                 <p className="ww-topic-dialog__note">未能读取原文，以上为标题解读；可直接确认，或打开原文查看细节。</p>
               ) : null}

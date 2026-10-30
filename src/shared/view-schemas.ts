@@ -39,6 +39,14 @@ export const HotspotItemDigestSchema = z.strictObject({
   source: z.enum(['article', 'title']),
   model: z.string(),
   generatedAtIso: z.iso.datetime(),
+  /** I-09：原文报道链接（canonical/首个外链，仅 http(s)）。 */
+  originUrl: z.string().regex(/^https?:\/\//, '必须是 http(s) URL').optional(),
+  /** I-09/I-08：来源类型，由速览阶段判断；旧缓存可缺省。 */
+  sourceType: z.enum(['hot', 'demand', 'evergreen']).optional(),
+  /** I-09：同题密度（当前未接入跨源检索，缺省即未检索）。 */
+  sameTopicCount: z.number().int().min(0).optional(),
+  /** I-09：固定边界说明（不显示阅读量，不能推断爆款）。 */
+  note: z.string().max(300).optional(),
 });
 export type HotspotItemDigest = z.infer<typeof HotspotItemDigestSchema>;
 
@@ -177,6 +185,15 @@ export type TopicCandidateView = z.infer<typeof TopicCandidateViewSchema>;
   sourceRank: z.number().int().min(1),
   sourceTitle: z.string(),
   sourceUrl: z.string(),
+  /** I-07/I-08：LLM 评分（0–10）与代码算出的总分/去重标记/推荐理由。 */
+  heat: z.number().min(0).max(10).optional(),
+  relevance: z.number().min(0).max(10).optional(),
+  value: z.number().min(0).max(10).optional(),
+  score: z.number().min(0).max(10).optional(),
+  reason: z.string().max(300).optional(),
+  historyMark: z.string().max(300).optional(),
+  /** I-08：来源类型（热点 / 高频需求 / 常青）。 */
+  sourceType: z.enum(['hot', 'demand', 'evergreen']).optional(),
 });
 export type SuggestedTopicView = z.infer<typeof SuggestedTopicViewSchema>;
 
@@ -199,6 +216,10 @@ export const SuggestedTopicsViewSchema = z.strictObject({
   totalHotspots: z.number().int().min(0),
   /** 本批建议对应的热榜批次；前端据此判断是否已是最新一批。 */
   batchId: z.string().min(1),
+  /** I-08：被写作要求/禁用词排除的热榜标题（最多 5 条）。 */
+  excluded: z.array(z.string()).max(20).optional(),
+  /** I-08：按总分排序的前三标题（首选/次选/第三）。 */
+  recommendations: z.array(z.string()).max(3).optional(),
 });
 export type SuggestedTopicsView = z.infer<typeof SuggestedTopicsViewSchema>;
 
