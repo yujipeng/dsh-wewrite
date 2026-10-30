@@ -4,7 +4,7 @@
  */
 
 import type { ImageProviderId } from '../../shared/image-provider-ids';
-import { ImageProviderError, type ImageGenRequest, type ImageGenResult, type ImageProvider, type ResolvedProviderConfig } from './types';
+import { ImageProviderError, type ImageGenRequest, type ImageGenResult, type ImageProvider, type ImageSize, type ResolvedProviderConfig } from './types';
 
 export interface ImageAttempt {
   readonly providerId: ImageProviderId;
@@ -33,6 +33,7 @@ export async function runImageFallback(
   providers: readonly ImageProvider[],
   resolveConfig: (providerId: ImageProviderId) => ResolvedProviderConfig,
   req: ImageGenRequest,
+  resolveSize?: (providerId: ImageProviderId) => ImageSize,
 ): Promise<FallbackOutcome> {
   if (req.signal?.aborted) {
     throw new ImageProviderError({ providerId: 'openai', code: 'NETWORK', message: '请求已中止，未发起任何供应商调用' });
@@ -44,7 +45,8 @@ export async function runImageFallback(
     for (;;) {
       tries += 1;
       try {
-        const result = await provider.generate(req, resolveConfig(provider.id));
+        const providerReq = resolveSize ? { ...req, size: resolveSize(provider.id) } : req;
+        const result = await provider.generate(providerReq, resolveConfig(provider.id));
         attempts.push({ providerId: provider.id, tries, outcome: 'success', codes });
         return { result, providerId: provider.id, attempts };
       } catch (thrown) {

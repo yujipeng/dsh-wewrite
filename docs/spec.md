@@ -98,7 +98,7 @@
 | articles | id/slug/title/digest/status(editing\|rendered\|pushed\|failed)/markdown/theme/coverImageId/bodyImageIds/wechatMediaId?/lastRunId | digest 必填（draft/add 需要） |
 | runs | id/trigger(manual\|schedule\|chat)/paramsSnapshot/status(queued\|running\|succeeded\|failed\|cancelled\|interrupted)/steps[]/error? | paramsSnapshot=触发时意图；runHistoryLimit 修剪；引擎串行 FIFO（默认并发 1） |
 | schedules | id/revision/rrrule/timeZone/params/publishTarget('draft' 恒)/nextRunAt/lastRunAt | rrule 归一化校验后存储；nextRunAt 是投影 |
-| images | id/articleId/kind(cover\|body)/mime/base64/provider/model/prompt/wechatUrl? | 单张 ≤10MB；base64 入库（ADR-005） |
+| images | id/articleId/kind(cover\|body)/mime/base64/bytes?/width?/height?/compressed?/provider/model/prompt/wechatUrl? | 单张 ≤10MB 入库；封面按 2.35:1、正文 16:9 裁剪并压缩到 <1MB（I-02/I-03）；压缩失败标记 compressed=false，推送预检兜底 |
 
 ## 7. 页面清单（锁定）
 

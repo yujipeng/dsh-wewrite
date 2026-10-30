@@ -135,6 +135,12 @@ export const ImageRecordSchema = z.strictObject({
   kind: z.enum(['cover', 'body']),
   mime: z.string().regex(/^image\//, { message: 'mime 必须 image/*' }),
   base64: z.string().max(IMAGE_BASE64_MAX_CHARS),
+  /** 压缩后字节数（I-03）；旧记录无此字段。 */
+  bytes: z.number().int().min(0).optional(),
+  width: z.number().int().min(1).optional(),
+  height: z.number().int().min(1).optional(),
+  /** false = sharp 不可用/压缩失败，交由推送预检兜底。 */
+  compressed: z.boolean().optional(),
   provider: z.string().min(1),
   model: z.string().min(1),
   prompt: z.string(),

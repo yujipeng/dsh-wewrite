@@ -9,7 +9,9 @@ import type { ImageProviderConfig } from '../shared/contract';
 import type { ImageRecord, SettingsRecord } from './domain';
 import type { ImagesGenerator } from './pipeline/engine';
 import { runImageFallback } from './providers/registry';
-import type { ImageGenRequest, ImageProvider, ResolvedProviderConfig } from './providers/types';
+import { chooseProviderSize } from './providers/capabilities';
+import { processForWeChat } from './images/postprocess';
+import type { ImageGenRequest, ImageProvider, ImageSize, ResolvedProviderConfig } from './providers/types';
 import { createAzureOpenAiProvider } from './providers/azure-openai';
 import { createDoubaoProvider } from './providers/doubao';
 import { createDashscopeProvider } from './providers/dashscope';
@@ -41,6 +43,12 @@ export interface ImagesGeneratorDeps {
   readonly fetchImpl?: typeof fetch;
 }
 
+/** 微信封面 2.35:1；正文 16:9（I-02 目标尺寸）。 */
+const COVER_TARGET = { width: 2048, height: 871 } as const;
+const BODY_TARGET = { width: 2048, height: 1152 } as const;
+const COVER_SIZE: ImageSize = '2048x871';
+const BODY_SIZE: ImageSize = '2048x1152';
+
 export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerator {
   return {
     generate: async ({ count, articleId }) => {
@@ -70,31 +78,50 @@ export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerato
       const resolveConfig = (providerId: ImageProviderId): ResolvedProviderConfig =>
         configs.get(providerId) ?? { apiKey: '' };
 
-      const make = async (prompt: string): Promise<ImageRecord> => {
-        const req: ImageGenRequest = { prompt, size: settings.defaultImageSize, n: 1 };
-        const outcome = await runImageFallback(providers, resolveConfig, req);
+      const make = async (
+        prompt: string,
+        kind: 'cover' | 'body',
+        target: { width: number; height: number },
+        targetSize: ImageSize,
+      ): Promise<ImageRecord> => {
+        const req: ImageGenRequest = { prompt, size: targetSize, n: 1 };
+        const outcome = await runImageFallback(providers, resolveConfig, req, (providerId) =>
+          chooseProviderSize(providerId, targetSize),
+        );
         const image = outcome.result.images[0];
+        // I-02/I-03：裁剪到微信目标比例 + 压缩到 <1MB；sharp 不可用时原样返回，预检兜底。
+        const processed = await processForWeChat(
+          image?.buffer ?? Buffer.alloc(0),
+          image?.mime ?? 'image/png',
+          target,
+        );
         return {
           v: 1,
           id: `img_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
           // P0-1：真实文章 id 溯源（render 步落库后回传；无绑定场景兜底占位）
           articleId: articleId ?? 'pending',
-          kind: 'body',
-          mime: image?.mime ?? 'image/png',
-          base64: (image?.buffer ?? Buffer.alloc(0)).toString('base64'),
+          kind,
+          mime: processed.mime,
+          base64: processed.buffer.toString('base64'),
           provider: outcome.providerId,
           model: outcome.result.model,
           prompt,
+          bytes: processed.bytes,
+          ...(processed.width > 0 ? { width: processed.width } : {}),
+          ...(processed.height > 0 ? { height: processed.height } : {}),
+          compressed: processed.compressed,
           createdAt: deps.now().toISOString(),
         };
       };
 
-      const cover = await make('为文章生成封面图：风格克制、信息密度高，深色纯色背景，无文字水印');
+      const cover = await make('为文章生成封面图：风格克制、信息密度高，深色纯色背景，无文字水印', 'cover', COVER_TARGET, COVER_SIZE);
       const bodies: ImageRecord[] = [];
       for (let index = 0; index < count; index += 1) {
-        bodies.push(await make(`正文配图 ${index + 1}：克制的信息图风格，单主题，无文字水印`));
+        bodies.push(
+          await make(`正文配图 ${index + 1}：克制的信息图风格，单主题，无文字水印`, 'body', BODY_TARGET, BODY_SIZE),
+        );
       }
-      const stored = [{ ...cover, kind: 'cover' as const }, ...bodies];
+      const stored = [cover, ...bodies];
       await deps.persist(stored);
       return { coverImageId: stored[0].id, bodyImageIds: bodies.map((record) => record.id) };
     },

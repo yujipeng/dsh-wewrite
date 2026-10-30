@@ -107,5 +107,8 @@
     "marked": "^18.0.10",
     "rrule": "^2.8.1",
     "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.35.5"
   }
 }

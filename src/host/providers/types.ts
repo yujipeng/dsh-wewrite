@@ -6,7 +6,16 @@
 
 import type { ImageProviderId } from '../../shared/image-provider-ids';
 
-export type ImageSize = '1024x1024' | '1024x1536' | '1536x1024' | '1344x768' | '768x1344';
+export type ImageSize =
+  | '1024x1024'
+  | '1024x1536'
+  | '1536x1024'
+  | '1344x768'
+  | '768x1344'
+  /** 微信封面目标（2.351:1）；仅能力矩阵允许的 provider 直接请求，其余请求近似尺寸后裁剪。 */
+  | '2048x871'
+  /** 正文图目标（16:9）。 */
+  | '2048x1152';
 
 export interface ImageGenRequest {
   readonly prompt: string;
