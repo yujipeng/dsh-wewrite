@@ -1,6 +1,6 @@
 # 借鉴 wechat-article 全流程的改进计划
 
-> 状态：**实施中**（2026-10-30：v1.0 tag 后启动；Phase 0 图像 spike、I-01 推送预检、I-02 尺寸/裁剪、I-03 压缩已完成）
+> 状态：**实施中**（2026-10-30：v1.0 tag 后启动；Phase 0 图像 spike、I-01 预检、I-02 尺寸/裁剪、I-03 压缩、I-04 回读、I-05 发布记录已完成）
 > 日期：2026-10-29（2026-10-30 更新实施状态）
 > 对照基线：`~/Documents/wechat-article/`（2026-10-22 ~ 10-29，7 篇已推草稿）与 `~/Documents/wechat-article/.wewrite/`
 > 本文只描述「补什么、放在哪、怎么验收」，不含代码改动。
@@ -98,7 +98,7 @@
 - **验收**：单测用 3 张固定样本（2.4MB PNG / 0.9MB JPEG / 0.3MB PNG）断言输出 ≤ 1MB 且 `mime` 正确；覆盖「压缩失败降级」路径。
 - **依赖**：同 Q1。
 
-#### I-04 推送后回读校验
+#### I-04 推送后回读校验 ✅ 已完成（2026-10-30）
 
 - **问题**：`draft/add` 返回 `media_id` 只说明请求成功，不说明线上内容正确（中文编码、图片替换、容器渲染都可能出问题）。外部流程用 `draft/get` 逐项比对，项目没有。
 - **做法**：
@@ -108,7 +108,7 @@
 - **落点**：`src/host/wechat/client.ts`、`src/host/wechat-flow.ts`、`src/host/domain.ts`（`ArticleRecord` 增加可选 `pushVerify`）。
 - **验收**：`tests/host/wechat-client.test.ts` 用 mock 响应覆盖：正常、中文乱码、图片数不符、封面缺失四组；断言 `issues` 内容可读且不含敏感信息。
 
-#### I-05 发布记录
+#### I-05 发布记录 ✅ 已完成（2026-10-30）
 
 - **问题**：推送后只有 `wechatMediaId/thumbMediaId`，没有时间、没有摘要字节、没有校验结论，无法审计与重推。
 - **做法**：`ArticleRecord` 增加可选字段 `pushedAt` / `digestBytes` / `pushVerify`；工作台文章详情增加「发布记录」折叠区，支持导出为与外部流程同形的 `发布记录.txt`（media_id、标题、摘要字节、推送时间、校验结论、重推说明）。重推命令只生成不执行。

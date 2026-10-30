@@ -159,7 +159,8 @@ describe('AC-7 推送闸门：service 层（qa-test-plan §10-2 补齐）', () =
 
     const result = await service.pushArticleDraft('art_gate_ok');
 
-    expect(result).toEqual({ mediaId: 'DRAFT_OK', thumbMediaId: 'THUMB_OK' });
+    expect(result).toMatchObject({ mediaId: 'DRAFT_OK', thumbMediaId: 'THUMB_OK' });
+    expect(result.verify.ok).toBe(false); // 测试路由未 mock draft/get，回读失败只记录不阻断
     const detail = service.getArticle('art_gate_ok');
     expect(detail.status).toBe('pushed');
     expect(detail.wechatMediaId).toBe('DRAFT_OK');

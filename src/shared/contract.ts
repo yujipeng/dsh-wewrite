@@ -227,7 +227,17 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
   },
   'wechat/pushDraft': {
     request: z.strictObject({ articleId: z.string().min(1) }),
-    response: z.strictObject({ mediaId: z.string().min(1), thumbMediaId: z.string().min(1) }),
+    response: z.strictObject({
+      mediaId: z.string().min(1),
+      thumbMediaId: z.string().min(1),
+      verify: z
+        .strictObject({
+          ok: z.boolean(),
+          issues: z.array(z.string()),
+          checkedAt: z.iso.datetime(),
+        })
+        .optional(),
+    }),
   },
   'wechat/diagnose': {
     request: EmptyRequest,

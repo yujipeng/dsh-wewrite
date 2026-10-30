@@ -70,6 +70,16 @@ export const ArticleDetailSchema = ArticleListItemSchema.extend({
   wechatMediaId: z.string().optional(),
   thumbMediaId: z.string().optional(),
   lastRunId: z.string().optional(),
+  /** 发布记录（I-04/I-05）：推送时间、摘要字节数、回读校验结论。 */
+  pushedAt: z.string().optional(),
+  digestBytes: z.number().int().min(0).optional(),
+  pushVerify: z
+    .strictObject({
+      ok: z.boolean(),
+      issues: z.array(z.string()),
+      checkedAt: z.string(),
+    })
+    .optional(),
 });
 export type ArticleDetail = z.infer<typeof ArticleDetailSchema>;
 

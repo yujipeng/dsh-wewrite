@@ -62,6 +62,20 @@ export interface PushDraftInput {
   readonly author?: string;
 }
 
+/** draft/get 回读条目（I-04）：字段按微信 API 响应命名归一。 */
+export interface DraftNewsItem {
+  readonly title: string;
+  readonly author: string;
+  readonly digest: string;
+  readonly content: string;
+  readonly thumbMediaId: string;
+  readonly url?: string;
+}
+
+export interface DraftDetail {
+  readonly newsItems: readonly DraftNewsItem[];
+}
+
 export interface DiagnoseResult {
   readonly reachable: boolean;
   readonly ipWhitelisted?: boolean;
@@ -196,6 +210,29 @@ export function createWeChatClient(deps: WeChatClientDeps) {
     return data.media_id;
   }
 
+  async function getDraft(mediaId: string): Promise<DraftDetail> {
+    const token = await fetchAccessToken();
+    const data = await callJson('/cgi-bin/draft/get', { access_token: token }, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ media_id: mediaId }),
+    });
+    const rawItems = Array.isArray(data.news_item) ? data.news_item : [];
+    const newsItems = rawItems.map((raw): DraftNewsItem => {
+      const item = (raw ?? {}) as Record<string, unknown>;
+      return {
+        title: typeof item.title === 'string' ? item.title : '',
+        author: typeof item.author === 'string' ? item.author : '',
+        digest: typeof item.digest === 'string' ? item.digest : '',
+        // callJson 走 response.json()（JSON 规范按 UTF-8 解码），中文不会走 latin-1 乱码路径。
+        content: typeof item.content === 'string' ? item.content : '',
+        thumbMediaId: typeof item.thumb_media_id === 'string' ? item.thumb_media_id : '',
+        ...(typeof item.url === 'string' ? { url: item.url } : {}),
+      };
+    });
+    return { newsItems };
+  }
+
   function replaceImageSources(html: string, uploadedUrls: readonly string[]): string {
     let index = 0;
     return html.replace(IMAGE_SRC_RE, (whole, prefix: string, quote: string, _source: string) => {
@@ -266,6 +303,7 @@ export function createWeChatClient(deps: WeChatClientDeps) {
     uploadContentImage,
     uploadThumbMaterial,
     addDraft,
+    getDraft,
     pushDraft,
     diagnose,
   };

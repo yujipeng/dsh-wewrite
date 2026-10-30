@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { ArticleDetail } from '@/shared/contract';
+import { formatPublishRecord } from '../../lib/publish-record';
 import { CodeChip } from '../bits';
 import { Icon } from '../Icon';
 import { useStore } from '../../store';
@@ -28,6 +29,16 @@ export function ArticleManage({
   const [renameBusy, setRenameBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+
+  async function copyPublishRecord() {
+    try {
+      await navigator.clipboard.writeText(formatPublishRecord(article));
+      toast.push({ kind: 'success', title: '发布记录已复制' });
+    } catch (error) {
+      toast.push({ kind: 'error', title: '复制失败', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   async function confirmRename() {
     const title = renameDraft.trim();
@@ -88,6 +99,7 @@ export function ArticleManage({
         }
         items={[
           { id: 'rename', label: '重命名', icon: <Icon name="square-pen" size={16} /> },
+          { id: 'publish', label: '发布记录', icon: <Icon name="history" size={16} /> },
           { id: 'delete', label: '删除', icon: <Icon name="trash-2" size={16} />, danger: true },
         ]}
         onSelect={(id) => {
@@ -95,6 +107,8 @@ export function ArticleManage({
           if (id === 'rename') {
             setRenameDraft(article.title);
             setRenameOpen(true);
+          } else if (id === 'publish') {
+            setPublishOpen(true);
           } else {
             setDeleteOpen(true);
           }
@@ -147,6 +161,22 @@ export function ArticleManage({
         <p className="ww-modal-note">
           <CodeChip>{article.slug}</CodeChip> 将从本地存储移除。
         </p>
+      </Modal>
+      <Modal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        title={`发布记录 · ${article.title}`}
+        closeLabel="关闭发布记录"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setPublishOpen(false)}>关闭</Button>
+            <Button variant="outline" size="sm" data-testid="ww-publish-record-copy" onClick={() => void copyPublishRecord()}>
+              复制记录
+            </Button>
+          </>
+        }
+      >
+        <pre className="ww-publish-record" data-testid="ww-publish-record">{formatPublishRecord(article)}</pre>
       </Modal>
     </>
   );

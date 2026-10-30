@@ -20,7 +20,7 @@ import { createDomainRunStore, openTables, parseGlobalState, type DomainTables, 
 import { createImagesGenerator } from './images';
 import { ArticleStore } from './articles-store';
 import { ScheduleStore } from './schedules-store';
-import { diagnoseWeChat, pushArticleDraft, type WeChatFlowDeps } from './wechat-flow';
+import { diagnoseWeChat, pushArticleDraft, type PushArticleResult, type WeChatFlowDeps } from './wechat-flow';
 import { truncateMessage } from './redaction';
 import { buildConfigView, runToDetail, runToSummary, scheduleToView } from './views';
 import { toServiceError, WewriteServiceError } from './service-errors';
@@ -605,7 +605,7 @@ export class WeWriteService {
     };
   }
 
-  async pushArticleDraft(articleId: string): Promise<{ mediaId: string; thumbMediaId: string }> {
+  async pushArticleDraft(articleId: string): Promise<PushArticleResult> {
     return pushArticleDraft(this.weChatFlowDeps(), articleId);
   }
 

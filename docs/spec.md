@@ -95,7 +95,7 @@
 | 表/全局 | 核心字段 | 约束 |
 |---|---|---|
 | global: SettingsRecord | wechatAppId/wechatApiBaseUrl/wechatAuthor/defaultTheme/llmDefault/imageProviders[]/agentToolsEnabled/runHistoryLimit | 机密一律走 credentials 不入此记录 |
-| articles | id/slug/title/digest/status(editing\|rendered\|pushed\|failed)/markdown/theme/coverImageId/bodyImageIds/wechatMediaId?/lastRunId | digest 必填（draft/add 需要） |
+| articles | id/slug/title/digest/status(editing\|rendered\|pushed\|failed)/markdown/theme/coverImageId/bodyImageIds/wechatMediaId?/lastRunId/pushedAt?/digestBytes?/pushVerify? | digest 必填（draft/add 需要）；pushVerify 记录回读校验结论 |
 | runs | id/trigger(manual\|schedule\|chat)/paramsSnapshot/status(queued\|running\|succeeded\|failed\|cancelled\|interrupted)/steps[]/error? | paramsSnapshot=触发时意图；runHistoryLimit 修剪；引擎串行 FIFO（默认并发 1） |
 | schedules | id/revision/rrrule/timeZone/params/publishTarget('draft' 恒)/nextRunAt/lastRunAt | rrule 归一化校验后存储；nextRunAt 是投影 |
 | images | id/articleId/kind(cover\|body)/mime/base64/bytes?/width?/height?/compressed?/provider/model/prompt/wechatUrl? | 单张 ≤10MB 入库；封面按 2.35:1、正文 16:9 裁剪并压缩到 <1MB（I-02/I-03）；压缩失败标记 compressed=false，推送预检兜底 |

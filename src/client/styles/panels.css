@@ -649,6 +649,22 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
   color: var(--ww-fg-tertiary);
 }
 
+/* 发布记录（I-05）：等宽纯文本，便于复制/留档 */
+.ww-publish-record {
+  margin: 0;
+  padding: var(--ww-space-3);
+  background: var(--ww-surface-sunken);
+  border-radius: var(--ww-radius-md);
+  font-family: var(--ww-font-code);
+  font-size: var(--ww-text-xs);
+  line-height: 1.7;
+  color: var(--ww-fg-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 360px;
+  overflow: auto;
+}
+
 .ww-topic-dialog__conflict {
   margin: 0;
   padding: var(--ww-space-2) var(--ww-space-3);

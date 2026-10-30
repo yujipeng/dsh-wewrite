@@ -29,6 +29,9 @@ export function articleToDetail(record: ArticleRecord): ArticleDetail {
     ...(record.wechatMediaId ? { wechatMediaId: record.wechatMediaId } : {}),
     ...(record.thumbMediaId ? { thumbMediaId: record.thumbMediaId } : {}),
     ...(record.lastRunId ? { lastRunId: record.lastRunId } : {}),
+    ...(record.pushedAt ? { pushedAt: record.pushedAt } : {}),
+    ...(record.digestBytes !== undefined ? { digestBytes: record.digestBytes } : {}),
+    ...(record.pushVerify ? { pushVerify: record.pushVerify } : {}),
   };
 }
 

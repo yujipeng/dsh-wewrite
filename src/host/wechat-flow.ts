@@ -9,6 +9,7 @@ import { WewriteServiceError } from './service-errors';
 import type { KvTable } from './platform';
 import { createWeChatClient, type DiagnoseResult, type WeChatClientDeps } from './wechat/client';
 import { preflightPush } from './wechat/preflight';
+import { extractKeySections, verifyDraft } from './wechat/verify';
 
 export interface WeChatFlowDeps {
   readonly articles: KvTable<ArticleRecord>;
@@ -19,7 +20,17 @@ export interface WeChatFlowDeps {
   readonly now: () => Date;
 }
 
-export async function pushArticleDraft(deps: WeChatFlowDeps, articleId: string): Promise<{ mediaId: string; thumbMediaId: string }> {
+export interface PushArticleResult {
+  readonly mediaId: string;
+  readonly thumbMediaId: string;
+  readonly verify: {
+    readonly ok: boolean;
+    readonly issues: readonly string[];
+    readonly checkedAt: string;
+  };
+}
+
+export async function pushArticleDraft(deps: WeChatFlowDeps, articleId: string): Promise<PushArticleResult> {
   const article = deps.articles.get(articleId);
   if (!article) throw new WewriteServiceError('article-not-found', `文章不存在：${articleId}`);
   if (article.status === 'editing' || article.status === 'failed') {
@@ -62,6 +73,36 @@ export async function pushArticleDraft(deps: WeChatFlowDeps, articleId: string):
     thumbImage: { buffer: Buffer.from(cover.base64, 'base64'), mime: cover.mime },
     contentImages: bodyImages.map((image) => ({ buffer: Buffer.from(image.base64, 'base64'), mime: image.mime })),
   });
+
+  // I-04：推送后回读。回读失败/不一致不回滚已推送事实，只写发布记录并交给 UI 标红。
+  const pushedAt = deps.now().toISOString();
+  const digestBytes = Buffer.byteLength(article.digest, 'utf8');
+  let verify: PushArticleResult['verify'];
+  try {
+    const draft = await client.getDraft(result.mediaId);
+    const item = draft.newsItems[0];
+    verify = item
+      ? {
+          ...verifyDraft(item, {
+            title: article.title,
+            author: deps.clientDeps.getSettings().author,
+            digest: article.digest,
+            thumbMediaId: result.thumbMediaId,
+            contentImageCount: bodyImages.length,
+            keySections: extractKeySections(article.markdown),
+            minTextChars: Math.max(50, Math.floor(article.markdown.replace(/\s+/g, '').length * 0.4)),
+          }),
+          checkedAt: pushedAt,
+        }
+      : { ok: false, issues: ['回读草稿为空：draft/get 未返回 news_item'], checkedAt: pushedAt };
+  } catch (error) {
+    verify = {
+      ok: false,
+      issues: [`回读校验失败：${error instanceof Error ? error.message : String(error)}`],
+      checkedAt: pushedAt,
+    };
+  }
+
   await deps.serialize(async () => {
     const current = deps.articles.get(articleId);
     if (!current) return;
@@ -70,10 +111,13 @@ export async function pushArticleDraft(deps: WeChatFlowDeps, articleId: string):
       status: 'pushed',
       wechatMediaId: result.mediaId,
       thumbMediaId: result.thumbMediaId,
+      pushedAt,
+      digestBytes,
+      pushVerify: { ...verify, issues: [...verify.issues] },
       updatedAt: deps.now().toISOString(),
     });
   });
-  return result;
+  return { ...result, verify };
 }
 
 export async function diagnoseWeChat(deps: WeChatFlowDeps): Promise<DiagnoseResult> {

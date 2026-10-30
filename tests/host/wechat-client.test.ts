@@ -189,6 +189,65 @@ describe('uploadimg / add_material / draft 端点形状（F30）', () => {
   });
 });
 
+describe('draft/get 回读（I-04）', () => {
+  it('POST /cgi-bin/draft/get，UTF-8 中文与 thumb_media_id 正确归一', async () => {
+    const { client, captured } = makeClient({
+      routes: [
+        tokenRoute(DIRECT_BASE, { access_token: 'TOKEN_1', expires_in: 7200 }),
+        {
+          match: (url) => url.startsWith(`${DIRECT_BASE}/cgi-bin/draft/get`),
+          respond: () =>
+            json({
+              news_item: [
+                {
+                  title: '中文标题',
+                  author: 'Jerry',
+                  digest: '中文摘要',
+                  content: '<p>正文中文内容</p><img src="https://mmbiz.test/1.jpg" />',
+                  thumb_media_id: 'THUMB_1',
+                },
+              ],
+            }),
+        },
+      ],
+    });
+
+    const detail = await client.getDraft('DRAFT_1');
+
+    expect(detail.newsItems).toHaveLength(1);
+    expect(detail.newsItems[0]).toMatchObject({
+      title: '中文标题',
+      author: 'Jerry',
+      digest: '中文摘要',
+      thumbMediaId: 'THUMB_1',
+    });
+    const request = captured.find((entry) => entry.url.includes('/cgi-bin/draft/get'));
+    expect(request?.method).toBe('POST');
+    expect(JSON.parse(String(request?.bodyText))).toEqual({ media_id: 'DRAFT_1' });
+  });
+
+  it('news_item 缺字段：归一为空串，不抛错', async () => {
+    const { client } = makeClient({
+      routes: [
+        tokenRoute(DIRECT_BASE, { access_token: 'TOKEN_1', expires_in: 7200 }),
+        {
+          match: (url) => url.startsWith(`${DIRECT_BASE}/cgi-bin/draft/get`),
+          respond: () => json({ news_item: [{ title: '仅有标题' }] }),
+        },
+      ],
+    });
+
+    const detail = await client.getDraft('DRAFT_1');
+    expect(detail.newsItems[0]).toMatchObject({
+      title: '仅有标题',
+      author: '',
+      digest: '',
+      content: '',
+      thumbMediaId: '',
+    });
+  });
+});
+
 describe('pushDraft 编排与 media_id 回填（AC-3 成功流）', () => {
   const pushRoutes = (base: string): Route[] => [
     tokenRoute(base, { access_token: 'TOKEN_1', expires_in: 7200 }),
