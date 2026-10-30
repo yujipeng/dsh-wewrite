@@ -362,6 +362,7 @@ DomainSpec
 | `article/save` | `{ id?, slug, title, digest, markdown, theme }` | `ArticleDetail` | 创建/更新 |
 | `article/delete` | `{ id }` | `{ deleted: boolean }` | |
 | `article/preview` | `{ id }` 或 `{ markdown, theme }` | `{ html }` | host 侧渲染返回（预览=产物一致性） |
+| `image/get` | `{ imageId }` | `ImageAsset` | 工作台看图：按需读取单张图片（封面/正文图） |
 | `run/start` | `{ articleId? , params: RunParams }` | `{ runId }` | 手动跑管线 |
 | `run/cancel` | `{ runId }` | `{ ok }` | AbortSignal 贯穿；queued 直接出队落 cancelled |
 | `run/retry` | `{ runId }` | `{ runId }` | 任务中心：复用原 paramsSnapshot 重新入队；活跃 run 拒绝 |

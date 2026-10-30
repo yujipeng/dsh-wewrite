@@ -6,6 +6,7 @@ import type { GateReportView } from '../components/GateReport';
 import { gateStatusForArticle } from '../lib/gate';
 import { countWords } from '../lib/format';
 import { describeRpcFailure } from '../lib/rpc';
+import { toDataUrl, useImageAssets } from '../lib/image-assets';
 import { articleStatusBadge, CodeChip, ErrorNote, SkeletonBlock, StatusBadge } from '../components/bits';
 import { ScheduleForm } from '../components/ScheduleForm';
 import { EditorWorkbench } from '../components/editor/EditorWorkbench';
@@ -62,6 +63,18 @@ export function EditorPanel({
 
   const doc = useArticleDoc(rpc, articleId);
   const { article } = doc;
+
+  const imageIds = useMemo(
+    () => (article ? [...(article.coverImageId ? [article.coverImageId] : []), ...article.bodyImageIds] : []),
+    [article],
+  );
+  const { assets: imageAssets } = useImageAssets(imageIds, rpc);
+  const coverUrl = article?.coverImageId && imageAssets[article.coverImageId]
+    ? toDataUrl(imageAssets[article.coverImageId])
+    : undefined;
+  const bodyImageUrls = (article?.bodyImageIds ?? [])
+    .map((id) => (imageAssets[id] ? toDataUrl(imageAssets[id]) : ''))
+    .filter((url) => Boolean(url));
 
   const [view, setView] = useState<EditorView>(readStoredView() ?? (narrow ? 'edit' : 'split'));
   const [splitRatio, setSplitRatio] = useState(readStoredSplit);
@@ -223,6 +236,8 @@ export function EditorPanel({
             today={today}
             zoom={zoom}
             onZoomChange={setZoom}
+            coverUrl={coverUrl}
+            bodyImageUrls={bodyImageUrls}
           />
         ) : null}
       </div>

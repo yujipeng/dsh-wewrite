@@ -25,6 +25,7 @@ import {
   HotspotFetchViewSchema,
   HotspotItemDigestSchema,
   HotspotAnalysisSchema,
+  ImageAssetSchema,
   RunDetailSchema,
   ScheduleViewModelSchema,
   SnapshotResponseSchema,
@@ -52,6 +53,7 @@ export const RPC_ENDPOINTS = [
   'article/delete',
   'article/preview',
   'article/rewrite',
+  'image/get',
   'run/start',
   'run/cancel',
   'run/retry',
@@ -152,6 +154,11 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
       z.strictObject({ markdown: z.string(), theme: z.string() }),
     ]),
     response: z.strictObject({ html: z.string() }),
+  },
+  // 工作台看图：按需读取单张图片（封面/正文图），避免 snapshot 携带 base64 撑大轮询。
+  'image/get': {
+    request: z.strictObject({ imageId: z.string().min(1) }),
+    response: ImageAssetSchema,
   },
   'article/rewrite': {
     request: z.strictObject({

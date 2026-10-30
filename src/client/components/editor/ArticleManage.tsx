@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Button, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { ArticleDetail } from '@/shared/contract';
 import { formatPublishRecord } from '../../lib/publish-record';
+import { useImageAssets } from '../../lib/image-assets';
+import { ArticleImagesModal } from './ArticleImagesModal';
 import { CodeChip } from '../bits';
 import { Icon } from '../Icon';
 import { useStore } from '../../store';
@@ -30,6 +32,13 @@ export function ArticleManage({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [imagesOpen, setImagesOpen] = useState(false);
+
+  const imageIds = [
+    ...(article.coverImageId ? [article.coverImageId] : []),
+    ...article.bodyImageIds,
+  ];
+  const { assets: imageAssets, loading: imagesLoading, error: imagesError } = useImageAssets(imageIds, rpc);
 
   async function copyPublishRecord() {
     try {
@@ -99,6 +108,7 @@ export function ArticleManage({
         }
         items={[
           { id: 'rename', label: '重命名', icon: <Icon name="square-pen" size={16} /> },
+          { id: 'images', label: '配图', icon: <Icon name="image" size={16} /> },
           { id: 'publish', label: '发布记录', icon: <Icon name="history" size={16} /> },
           { id: 'delete', label: '删除', icon: <Icon name="trash-2" size={16} />, danger: true },
         ]}
@@ -107,6 +117,8 @@ export function ArticleManage({
           if (id === 'rename') {
             setRenameDraft(article.title);
             setRenameOpen(true);
+          } else if (id === 'images') {
+            setImagesOpen(true);
           } else if (id === 'publish') {
             setPublishOpen(true);
           } else {
@@ -178,6 +190,14 @@ export function ArticleManage({
       >
         <pre className="ww-publish-record" data-testid="ww-publish-record">{formatPublishRecord(article)}</pre>
       </Modal>
+      <ArticleImagesModal
+        open={imagesOpen}
+        onClose={() => setImagesOpen(false)}
+        article={article}
+        images={imageAssets}
+        loading={imagesLoading}
+        {...(imagesError ? { error: imagesError } : {})}
+      />
     </>
   );
 }

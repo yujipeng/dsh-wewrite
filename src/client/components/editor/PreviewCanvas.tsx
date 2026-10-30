@@ -1,7 +1,8 @@
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { THEME_OPTIONS } from '@/render/themes';
+import { resolvePreviewImages } from '../../lib/preview-images';
 import { Icon } from '../Icon';
 
 /**
@@ -10,6 +11,7 @@ import { Icon } from '../Icon';
  * - 底 --ww-canvas-bg 固定浅色（公众号文章永远浅底，不随宿主主题）。
  * - 内容 = article/preview 的真实产物 HTML（与推草稿箱载荷字节一致，AC-8）；
  *   宿主侧已转义 script/iframe，画布内为 UGC 排版主题域。
+ * - 正文图占位 `ww-image-placeholder` 在预览时按序替换为 image/get 读取的 data URL（I-06/工作台看图）。
  * - 刷新期间画布角标「渲染中…」，不整屏遮罩。
  * - 缩放档 100/90/75%（v0.2 §1-7）：纯 CSS transform 视觉变换，载荷字节不变（AC-7）。
  */
@@ -34,6 +36,8 @@ export function PreviewCanvas({
   today,
   zoom,
   onZoomChange,
+  coverUrl,
+  bodyImageUrls,
 }: {
   html: string | undefined;
   rendering: boolean;
@@ -43,12 +47,18 @@ export function PreviewCanvas({
   today: string;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  coverUrl?: string;
+  bodyImageUrls?: readonly string[];
 }) {
   const themeEntries: MenuEntry[] = CANVAS_THEMES.map((item) => ({ id: item.id, label: item.label }));
   const zoomEntries: MenuEntry[] = ZOOM_LEVELS.map((item) => ({ id: item.id, label: item.label }));
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const zoomId = String(Math.round(zoom * 100));
+  const resolvedHtml = useMemo(
+    () => (html === undefined ? undefined : resolvePreviewImages(html, bodyImageUrls ?? [])),
+    [html, bodyImageUrls],
+  );
 
   return (
     <section className="ww-preview" aria-label="微信预览画布">
@@ -128,8 +138,14 @@ export function PreviewCanvas({
               <p className="ww-preview__account">{author}</p>
               <p className="ww-preview__date">{today}</p>
             </header>
+            {coverUrl ? (
+              <figure className="ww-preview__cover" data-testid="ww-preview-cover">
+                <img src={coverUrl} alt="封面图" />
+                <figcaption>封面 · 2.35:1</figcaption>
+              </figure>
+            ) : null}
             {/* preview-ugc：宿主渲染的微信排版产物（已过转义），UGC 域允许富文本 */}
-            <div className="ww-preview__content" dangerouslySetInnerHTML={{ __html: html }} />
+            <div className="ww-preview__content" dangerouslySetInnerHTML={{ __html: resolvedHtml ?? html }} />
           </div>
         )}
       </div>

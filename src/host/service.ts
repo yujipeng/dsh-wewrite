@@ -1,6 +1,6 @@
 /** WeWriteService（架构 §3）：host 级唯一服务；写操作串行化。重活已拆 images/wechat-flow/articles-store/schedules-store/views。 */
 
-import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotFetchView, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
+import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotFetchView, type HotspotItem, type HotspotItemDigest, type ImageAsset, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
 import { createHash, randomUUID } from 'node:crypto';
 import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
@@ -400,6 +400,24 @@ export class WeWriteService {
 
   getArticle(id: string): ArticleDetail {
     return this.articles.get(id);
+  }
+
+  /** 工作台看图：按需读取单张图片（封面/正文图）。 */
+  getImage(imageId: string): ImageAsset {
+    const record = this.tables.images.get(imageId);
+    if (!record) throw new WewriteServiceError('image-not-found', `图片不存在：${imageId}`);
+    return {
+      id: record.id,
+      articleId: record.articleId,
+      kind: record.kind,
+      mime: record.mime,
+      base64: record.base64,
+      createdAt: record.createdAt,
+      ...(record.bytes !== undefined ? { bytes: record.bytes } : {}),
+      ...(record.width !== undefined ? { width: record.width } : {}),
+      ...(record.height !== undefined ? { height: record.height } : {}),
+      ...(record.compressed !== undefined ? { compressed: record.compressed } : {}),
+    };
   }
 
   saveArticle(input: { id?: string; slug: string; title: string; digest: string; markdown: string; theme: string }): Promise<ArticleDetail> {

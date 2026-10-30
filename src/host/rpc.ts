@@ -15,6 +15,7 @@ interface RpcPayload {
   readonly runId?: string;
   readonly callId?: string;
   readonly articleId?: string;
+  readonly imageId?: string;
   readonly enabled?: boolean;
   readonly action?: string;
   readonly topicCount?: number;
@@ -77,6 +78,8 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
       return service.previewArticle(
         payload.id ? { id: payload.id } : { markdown: String(payload.markdown), theme: String(payload.theme) },
       );
+    case 'image/get':
+      return service.getImage(String(payload.imageId));
     case 'article/rewrite':
       return service.rewriteText({
         text: String(payload.text),

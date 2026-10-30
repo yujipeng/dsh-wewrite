@@ -77,6 +77,7 @@
 | `article/save` | `{id?,slug,title,digest,markdown,theme}` | `ArticleDetail` | 创建/更新 |
 | `article/delete` | `{id}` | `{deleted}` | |
 | `article/preview` | `{id}\|{markdown,theme}` | `{html}` | host 侧渲染，预览=产物 |
+| `image/get` | `{imageId}` | `ImageAsset`（id/articleId/kind/mime/base64/bytes?/width?/height?/compressed?/createdAt） | 工作台看图：按需读取单张图片，不塞进 snapshot |
 | `run/start` | `{articleId?,params:RunParams}` | `{runId}` | 手动跑管线 |
 | `run/cancel` | `{runId}` | `{ok}` | AbortSignal 贯穿；queued 直接出队 |
 | `run/retry` | `{runId}` | `{runId}` | 任务中心重试：复用原 paramsSnapshot 重新入队 |

@@ -83,6 +83,21 @@ export const ArticleDetailSchema = ArticleListItemSchema.extend({
 });
 export type ArticleDetail = z.infer<typeof ArticleDetailSchema>;
 
+/** 工作台看图（image/get）：按需返回单张图片的 base64 与元信息，避免把图片塞进 snapshot。 */
+export const ImageAssetSchema = z.strictObject({
+  id: z.string().min(1),
+  articleId: z.string().min(1),
+  kind: z.enum(['cover', 'body']),
+  mime: z.string().regex(/^image\//, { message: 'mime 必须 image/*' }),
+  base64: z.string().min(1),
+  bytes: z.number().int().min(0).optional(),
+  width: z.number().int().min(1).optional(),
+  height: z.number().int().min(1).optional(),
+  compressed: z.boolean().optional(),
+  createdAt: z.string(),
+});
+export type ImageAsset = z.infer<typeof ImageAssetSchema>;
+
 export const RunSummarySchema = z.strictObject({
   id: z.string(),
   trigger: z.enum(['manual', 'schedule', 'chat']),
