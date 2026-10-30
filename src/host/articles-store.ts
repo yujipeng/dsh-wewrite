@@ -129,8 +129,24 @@ function deriveTitle(markdown: string): string {
   return (heading?.[1] ?? '未命名稿件').slice(0, 40);
 }
 
-function deriveDigest(markdown: string): string {
-  return markdown.replace(/[#>*`\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 110);
+/** 微信摘要上限 120 字节；派生摘要留 2 字节余量，按 UTF-8 码点截断避免切坏多字节字符。 */
+const WECHAT_DIGEST_MAX_BYTES = 118;
+
+function truncateUtf8Bytes(text: string, maxBytes: number): string {
+  let bytes = 0;
+  let output = '';
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8');
+    if (bytes + size > maxBytes) break;
+    output += char;
+    bytes += size;
+  }
+  return output;
+}
+
+export function deriveDigest(markdown: string): string {
+  const cleaned = markdown.replace(/[#>*`\-]/g, '').replace(/\s+/g, ' ').trim();
+  return truncateUtf8Bytes(cleaned, WECHAT_DIGEST_MAX_BYTES).trim();
 }
 
 export type { RunParams };

@@ -195,6 +195,23 @@ describe('AC-7 推送闸门：service 层（qa-test-plan §10-2 补齐）', () =
     expect(pushed.mediaId).toBe('DRAFT_OK');
     expect(service.getArticle(articles[0].id).status).toBe('pushed');
   });
+
+  it('推送前预检：摘要超 120 字节 → push-preflight-failed，零微信网络调用', async () => {
+    const domain = new MemoryDomain();
+    seedCover(domain, 'art_preflight');
+    const article = seedArticle(domain, {
+      id: 'art_preflight',
+      status: 'rendered',
+      coverImageId: 'img_seed_cover',
+      digest: '超'.repeat(41), // 123 字节
+    });
+    const { service, fetch } = await makeService(wechatOkRoutes, domain);
+
+    const code = await rejectCode(service.pushArticleDraft(article.id));
+
+    expect(code).toBe('push-preflight-failed');
+    expect(fetch.log.length).toBe(0);
+  });
 });
 
 describe('AC-1 service 层补齐：推送失败不误标 pushed（qa-test-plan §5 AC-1 行登记项）', () => {

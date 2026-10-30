@@ -87,7 +87,7 @@
 | `credentials/set` | `{ref,value}` | `{ok}` | 只写直通 |
 | `credentials/describe` | `{}` | `Record<ref,{configured,writable}>` | 「已配置」徽标 |
 | `llm/options` | `{}` | `{providers:[{id,models[]}]}` | 透传平台 |
-| `wechat/pushDraft` | `{articleId}` | `{mediaId,thumbMediaId}` | 用户显式动作；全链路校验 |
+| `wechat/pushDraft` | `{articleId}` | `{mediaId,thumbMediaId}` | 用户显式动作；推送前 preflight（标题 ≤64 字、摘要 ≤120 字节、正文图 ≤10、单图 <1MB）+ 全链路校验 |
 | `wechat/diagnose` | `{}` | `{reachable,ipWhitelisted?,errcode?,hint}` | 40164 特判 |
 
 ## 6. 数据表清单（锁定——storage domain `dsh-wewrite` v1；zod schema 为权威，字段详见架构 §5）

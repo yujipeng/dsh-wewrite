@@ -8,6 +8,7 @@ import type { ArticleRecord, ImageRecord } from './domain';
 import { WewriteServiceError } from './service-errors';
 import type { KvTable } from './platform';
 import { createWeChatClient, type DiagnoseResult, type WeChatClientDeps } from './wechat/client';
+import { preflightPush } from './wechat/preflight';
 
 export interface WeChatFlowDeps {
   readonly articles: KvTable<ArticleRecord>;
@@ -30,6 +31,26 @@ export async function pushArticleDraft(deps: WeChatFlowDeps, articleId: string):
   const bodyImages = article.bodyImageIds
     .map((id) => deps.images.get(id))
     .filter((image): image is ImageRecord => Boolean(image));
+
+  // 预检必须发生在任何微信网络调用之前（含 refreshSecret 后的 token 请求）。
+  const preflight = preflightPush({
+    title: article.title,
+    digest: article.digest,
+    bodyImageIds: article.bodyImageIds,
+    ...(article.coverImageId ? { coverImageId: article.coverImageId } : {}),
+    images: [cover, ...bodyImages].map((image) => ({
+      id: image.id,
+      kind: image.kind,
+      bytes: Buffer.byteLength(image.base64, 'base64'),
+      mime: image.mime,
+    })),
+  });
+  if (!preflight.ok) {
+    throw new WewriteServiceError(
+      'push-preflight-failed',
+      `推送前检查未通过：${preflight.issues.join('；')}`,
+    );
+  }
 
   await deps.refreshSecret();
   const client = createWeChatClient(deps.clientDeps);
