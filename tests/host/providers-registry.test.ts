@@ -289,8 +289,16 @@ describe('runImageFallback：fallback 编排（AC-9）', () => {
 describe('9 家 provider 传输层单测（HTTP mock，双形态解析）', () => {
   for (const [providerId, factory] of PROVIDER_FACTORIES) {
     describe(`${providerId}`, () => {
+      const isDashscope = providerId === 'dashscope';
+      // DashScope 走异步任务：submit -> poll(SUCCEEDED) -> download。
+      const dashscopeRoutes = () => [
+        () => jsonResponse({ output: { task_id: 'task_1' } }),
+        () => jsonResponse({ output: { task_status: 'SUCCEEDED', results: [{ url: CDN_URL }] } }),
+        () => binaryResponse(PNG_MAGIC),
+      ];
+
       it('b64_json 形态：解析出精确 PNG 字节', async () => {
-        const { captured } = mockFetch([() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
+        const { captured } = mockFetch(isDashscope ? dashscopeRoutes() : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
         const provider = factory();
         const result = await provider.generate(imageReq(), cfg());
 
@@ -298,27 +306,29 @@ describe('9 家 provider 传输层单测（HTTP mock，双形态解析）', () =
         expect(Buffer.compare(result.images[0].buffer, Buffer.from(PNG_MAGIC))).toBe(0);
         expect(result.images[0].mime.startsWith('image/')).toBe(true);
         expect(result.model).toBe('test-image-model');
-        expect(captured.length).toBe(1);
+        expect(captured.length).toBe(isDashscope ? 3 : 1);
       });
 
       it('url 形态：二次拉取 URL 拿到二进制', async () => {
-        const { captured } = mockFetch([
-          () => jsonResponse({ data: [{ url: CDN_URL }] }),
-          () => binaryResponse(PNG_MAGIC),
-        ]);
+        const { captured } = mockFetch(
+          isDashscope
+            ? dashscopeRoutes()
+            : [() => jsonResponse({ data: [{ url: CDN_URL }] }), () => binaryResponse(PNG_MAGIC)],
+        );
         const provider = factory();
         const result = await provider.generate(imageReq(), cfg());
 
         expect(result.images.length).toBe(1);
         expect(Buffer.compare(result.images[0].buffer, Buffer.from(PNG_MAGIC))).toBe(0);
-        expect(captured.length).toBe(2);
-        expect(captured[1].url).toBe(CDN_URL);
-        expect(captured[1].method).toBe('GET');
+        expect(captured.length).toBe(isDashscope ? 3 : 2);
+        const download = captured[isDashscope ? 2 : 1];
+        expect(download.url).toBe(CDN_URL);
+        expect(download.method).toBe('GET');
       });
 
       it('请求不变量：baseUrl 前缀 + POST + prompt 传递 + 凭据携带 + signal 透传', async () => {
         const controller = new AbortController();
-        const { captured } = mockFetch([() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
+        const { captured } = mockFetch(isDashscope ? dashscopeRoutes() : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
         const provider = factory();
         await provider.generate(imageReq({ signal: controller.signal }), cfg());
 

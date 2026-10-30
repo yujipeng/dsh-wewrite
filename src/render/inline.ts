@@ -47,14 +47,22 @@ export function pythonInlineToHtml(text: string, theme: RenderTheme, breaks = tr
       continue;
     }
     if ((match = rest.match(/^!\[([^\]]*)\]\(\s*([^)\s]+)\s*(?:['"]([^)]*)['"]\s*)?\)/))) {
-      const url = sanitizeUrl(match[2]);
-      if (url === null) {
-        // 非法图片 URL：丢弃资源，保留 alt 文本（防属性注入）
-        html += escapeText(match[1]);
-      } else {
-        html += `<img alt="${escapeAttr(match[1])}" src="${escapeAttr(url)}" style="${theme.img}"${
+      const rawUrl = match[2];
+      if (rawUrl.includes('图片待生成')) {
+        // images 步的正文图占位：保留 <img>，推送时 replaceImageSources 按序替换为微信 CDN URL。
+        html += `<img alt="${escapeAttr(match[1])}" src="ww-image-placeholder" style="${theme.img}"${
           match[3] ? ` title="${escapeAttr(match[3])}"` : ''
         } />`;
+      } else {
+        const url = sanitizeUrl(rawUrl);
+        if (url === null) {
+          // 非法图片 URL：丢弃资源，保留 alt 文本（防属性注入）
+          html += escapeText(match[1]);
+        } else {
+          html += `<img alt="${escapeAttr(match[1])}" src="${escapeAttr(url)}" style="${theme.img}"${
+            match[3] ? ` title="${escapeAttr(match[3])}"` : ''
+          } />`;
+        }
       }
       rest = rest.slice(match[0].length);
       continue;

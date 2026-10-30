@@ -277,6 +277,24 @@ describe('pushDraft 编排与 media_id 回填（AC-3 成功流）', () => {
     expect(result).toEqual({ mediaId: 'DRAFT_MEDIA_9', thumbMediaId: 'THUMB_MEDIA_1' });
   });
 
+  it('正文「(图片待生成)」占位替换为 uploadimg 返回的 CDN 图片', async () => {
+    const { client, captured } = makeClient({ routes: pushRoutes(DIRECT_BASE) });
+    await client.pushDraft({
+      title: '标题',
+      digest: '摘要',
+      contentHtml: '<section><p>正文</p><p>( 图片待生成 )</p></section>',
+      thumbImage: { buffer: PNG, mime: 'image/png' },
+      contentImages: [{ buffer: PNG, mime: 'image/png' }],
+    });
+
+    const draft = captured.find((entry) => entry.url.includes('/cgi-bin/draft/add'));
+    const body = JSON.parse(draft?.bodyText ?? '{}') as { articles: Array<{ content: string }> };
+    expect(body.articles[0].content).toContain(
+      '<img src="https://mmbiz.qpic.cn/mmbiz_png/body/0?wx_fmt=png"',
+    );
+    expect(body.articles[0].content).not.toContain('图片待生成');
+  });
+
   it('编排顺序：token -> uploadimg(正文图) -> add_material(封面) -> draft/add', async () => {
     const { client, captured } = makeClient({ routes: pushRoutes(DIRECT_BASE) });
     await client.pushDraft({

@@ -1,6 +1,6 @@
 # 借鉴 wechat-article 全流程的改进计划
 
-> 状态：**实施中**（2026-10-30：v1.0 tag 后启动；Phase 0 图像 spike、I-01 预检、I-02 尺寸/裁剪、I-03 压缩、I-04 回读、I-05 发布记录已完成）
+> 状态：**Phase 1 已完成并真机验证**（2026-10-30：v1.0 tag 后启动；Phase 0 图像 spike、I-01 预检、I-02 尺寸/裁剪、I-03 压缩、I-04 回读、I-05 发布记录已完成；真机推送 `pushVerify.ok=true`）
 > 日期：2026-10-29（2026-10-30 更新实施状态）
 > 对照基线：`~/Documents/wechat-article/`（2026-10-22 ~ 10-29，7 篇已推草稿）与 `~/Documents/wechat-article/.wewrite/`
 > 本文只描述「补什么、放在哪、怎么验收」，不含代码改动。
@@ -83,8 +83,8 @@
 
 - **问题**：微信封面要求 2.35:1，当前 `ImageSize` 枚举（`src/host/providers/types.ts`）只有 1:1、2:3、3:2、7:4 等，没有 2.35:1；正文图也未固定 16:9。
 - **做法**：
-  1. 新增尺寸常量：封面目标 `2048×871`（2.351:1），正文目标 `2048×1152`（16:9）。
-  2. 在 provider 层引入**能力矩阵**：每个 provider 声明可请求的尺寸集合。能直接请求目标尺寸的（外部流程已用 dashscope 验证 `2048×871` / `2048×1152`）直接请求；不能的请求最接近的支持尺寸，再由本地裁剪到目标比例。矩阵需按各家实际 API 文档逐条确认，不按厂商名一刀切。
+  1. 新增尺寸常量：封面目标 `1280×545`（2.35:1），正文目标 `1280×720`（16:9）。dashscope 直接请求 1280×720（实测可用），封面由本地裁剪；避免 2048 大尺寸触发限流/尺寸限制。
+  2. 在 provider 层引入**能力矩阵**：每个 provider 声明可请求的尺寸集合。能直接请求目标尺寸的（dashscope 1280×720）直接请求；不能的请求最接近的支持尺寸，再由本地裁剪到目标比例。矩阵需按各家实际 API 文档逐条确认，不按厂商名一刀切。
   3. `images.ts` 的封面与正文分别使用两套 prompt 与尺寸，不再共用 `defaultImageSize`。
 - **落点**：`src/host/providers/types.ts`、`src/host/providers/registry.ts`、`src/host/images.ts`、`src/host/domain.ts`（`defaultImageSize` 保留旧值，新增枚举）。
 - **验收**：单测断言每个 provider 的请求尺寸落在其支持集合内；集成测试断言最终封面宽高比误差 < 0.02；`tests/host/providers-registry.test.ts` 增加能力矩阵用例。
@@ -105,8 +105,9 @@
   1. `client.ts` 增加 `getDraft(mediaId)`，实现 `/cgi-bin/draft/get`；响应体显式按 UTF-8 解码（外部踩过的坑：默认 latin-1 会把中文变乱码）。
   2. 新增纯函数 `verifyDraft(actual, expected)`：比对标题、作者、摘要（字节数）、`thumb_media_id` 是否存在、正文 `<img>` 数量、正文长度下限、关键段落是否出现（标题 + 每个 H2）。
   3. 推送结果增加 `verify: { ok, issues[] }`；校验失败**不回滚**已推送事实，但 UI 明确标红并给出差异。
-- **落点**：`src/host/wechat/client.ts`、`src/host/wechat-flow.ts`、`src/host/domain.ts`（`ArticleRecord` 增加可选 `pushVerify`）。
-- **验收**：`tests/host/wechat-client.test.ts` 用 mock 响应覆盖：正常、中文乱码、图片数不符、封面缺失四组；断言 `issues` 内容可读且不含敏感信息。
+  4. 正文图占位：渲染层把 `![alt](图片待生成)` 保留为 `ww-image-placeholder`，`pushDraft` 按序替换为 `uploadimg` 返回的 CDN URL；无对应图的占位删除，避免微信把占位当成图片（回读会多出空图）。
+- **落点**：`src/host/wechat/client.ts`、`src/host/wechat-flow.ts`、`src/render/inline.ts`、`src/host/domain.ts`（`ArticleRecord` 增加可选 `pushVerify`）。
+- **验收**：`tests/host/wechat-client.test.ts` 用 mock 响应覆盖：正常、中文乱码、图片数不符、封面缺失四组；断言 `issues` 内容可读且不含敏感信息。2026-10-30 真机推送验证：`pushVerify.ok=true`，`digestBytes=117`，封面 1280×545 / 正文图 1280×720 均 <1MB。
 
 #### I-05 发布记录 ✅ 已完成（2026-10-30）
 

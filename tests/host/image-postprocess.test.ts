@@ -17,16 +17,16 @@ const smoothPng = async (width = 2048, height = 2048): Promise<Buffer> =>
 
 describe('processForWeChat', () => {
   it(
-    '封面：裁剪到 2048×871（2.35:1）并压缩到 <1MB',
+    '封面：裁剪到 1280×545（2.35:1）并压缩到 <1MB',
     async () => {
       const source = await smoothPng();
-      const result = await processForWeChat(source, 'image/png', { width: 2048, height: 871 });
+      const result = await processForWeChat(source, 'image/png', { width: 1280, height: 545 });
 
       expect(result.compressed).toBe(true);
       expect(result.mime).toBe('image/jpeg');
-      expect(result.width).toBe(2048);
-      expect(result.height).toBe(871);
-      expect(result.width / result.height).toBeCloseTo(2.351, 2);
+      expect(result.width).toBe(1280);
+      expect(result.height).toBe(545);
+      expect(result.width / result.height).toBeCloseTo(2.349, 2);
       expect(result.bytes).toBeLessThanOrEqual(WECHAT_IMAGE_MAX_BYTES);
       expect(result.buffer.length).toBe(result.bytes);
     },
@@ -34,13 +34,13 @@ describe('processForWeChat', () => {
   );
 
   it(
-    '正文：裁剪到 2048×1152（16:9）并压缩到 <1MB',
+    '正文：裁剪到 1280×720（16:9）并压缩到 <1MB',
     async () => {
       const source = await smoothPng();
-      const result = await processForWeChat(source, 'image/png', { width: 2048, height: 1152 });
+      const result = await processForWeChat(source, 'image/png', { width: 1280, height: 720 });
 
-      expect(result.width).toBe(2048);
-      expect(result.height).toBe(1152);
+      expect(result.width).toBe(1280);
+      expect(result.height).toBe(720);
       expect(result.width / result.height).toBeCloseTo(16 / 9, 2);
       expect(result.bytes).toBeLessThanOrEqual(WECHAT_IMAGE_MAX_BYTES);
     },
@@ -57,17 +57,17 @@ describe('processForWeChat', () => {
         .toBuffer();
       expect(source.length).toBeGreaterThan(1024 * 1024);
 
-      const result = await processForWeChat(source, 'image/png', { width: 2048, height: 871 });
+      const result = await processForWeChat(source, 'image/png', { width: 1280, height: 545 });
 
       expect(result.bytes).toBeLessThanOrEqual(WECHAT_IMAGE_MAX_BYTES);
-      expect(result.width).toBeLessThan(2048);
-      expect(result.width / result.height).toBeCloseTo(2.351, 2);
+      expect(result.width).toBeLessThanOrEqual(1280);
+      expect(result.width / result.height).toBeCloseTo(2.349, 2);
     },
     30_000,
   );
 
   it('空 buffer：不崩溃，compressed=false，交由预检拒绝', async () => {
-    const result = await processForWeChat(Buffer.alloc(0), 'image/png', { width: 2048, height: 871 });
+    const result = await processForWeChat(Buffer.alloc(0), 'image/png', { width: 1280, height: 545 });
     expect(result).toMatchObject({ bytes: 0, compressed: false });
   });
 });

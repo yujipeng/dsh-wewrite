@@ -23,8 +23,9 @@ const OPENAI_SIZES: readonly ImageSize[] = ['1024x1024', '1536x1024', '1024x1536
 export const PROVIDER_IMAGE_SIZES: Readonly<Record<ImageProviderId, readonly ImageSize[]>> = {
   openai: OPENAI_SIZES,
   azure_openai: OPENAI_SIZES,
-  // dashscope 的万相接口接受任意 W*H（外部流程已验证 2048×871 / 2048×1152）。
-  dashscope: [...STANDARD_SIZES, '2048x871', '2048x1152'],
+  // dashscope 万相：实测 1024×1024 / 1280×720 可提交；1280×720 覆盖正文 16:9，
+  // 封面 2.35:1 由后处理裁剪（不直接请求 2048 大尺寸，避免限流/尺寸限制）。
+  dashscope: ['1024x1024', '1280x720'],
   doubao: STANDARD_SIZES,
   jimeng: STANDARD_SIZES,
   minimax: STANDARD_SIZES,

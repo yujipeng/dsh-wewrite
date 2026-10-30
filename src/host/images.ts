@@ -43,11 +43,11 @@ export interface ImagesGeneratorDeps {
   readonly fetchImpl?: typeof fetch;
 }
 
-/** 微信封面 2.35:1；正文 16:9（I-02 目标尺寸）。 */
-const COVER_TARGET = { width: 2048, height: 871 } as const;
-const BODY_TARGET = { width: 2048, height: 1152 } as const;
-const COVER_SIZE: ImageSize = '2048x871';
-const BODY_SIZE: ImageSize = '2048x1152';
+/** 微信封面 2.35:1；正文 16:9（I-02 目标尺寸，1280 宽已满足封面 900×383 建议）。 */
+const COVER_TARGET = { width: 1280, height: 545 } as const;
+const BODY_TARGET = { width: 1280, height: 720 } as const;
+const COVER_SIZE: ImageSize = '1280x545';
+const BODY_SIZE: ImageSize = '1280x720';
 
 export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerator {
   return {

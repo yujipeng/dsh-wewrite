@@ -373,10 +373,17 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
         }
         const code = thrown instanceof PipelineStepError ? thrown.code : 'step-error';
         const message = thrown instanceof Error ? thrown.message : String(thrown);
+        // 可观测性（I-02/I-03 排查）：图片 fallback 的每家尝试码 / PipelineStepError.details
+        // 落进 step metrics，避免只看到「全部供应商失败」而不知道原因。
+        const details =
+          thrown instanceof PipelineStepError && thrown.details !== undefined
+            ? thrown.details
+            : (thrown as { attempts?: unknown }).attempts;
         patchStep(runId, stepName, {
           status: 'failed',
           finishedAt: nowIso(),
           error: { code, message },
+          ...(details !== undefined ? { metrics: { details } } : {}),
         });
         if (stepName === 'images') {
           // AC-9：图片步全失败可无图推进——run 仍 succeeded，不设 run 级 error。

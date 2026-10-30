@@ -8,20 +8,20 @@ import { chooseProviderSize, PROVIDER_IMAGE_SIZES } from '@/host/providers/capab
  */
 
 describe('provider 尺寸能力矩阵', () => {
-  it('dashscope 直接请求微信目标尺寸', () => {
-    expect(chooseProviderSize('dashscope', '2048x871')).toBe('2048x871');
-    expect(chooseProviderSize('dashscope', '2048x1152')).toBe('2048x1152');
+  it('dashscope 用 1280x720 覆盖正文，封面同尺寸裁剪', () => {
+    expect(chooseProviderSize('dashscope', '1280x545')).toBe('1280x720');
+    expect(chooseProviderSize('dashscope', '1280x720')).toBe('1280x720');
   });
 
   it('openai 不支持目标尺寸时选宽高比最接近的 1536x1024', () => {
-    expect(chooseProviderSize('openai', '2048x871')).toBe('1536x1024');
-    expect(chooseProviderSize('openai', '2048x1152')).toBe('1536x1024');
-    expect(chooseProviderSize('azure_openai', '2048x871')).toBe('1536x1024');
+    expect(chooseProviderSize('openai', '1280x545')).toBe('1536x1024');
+    expect(chooseProviderSize('openai', '1280x720')).toBe('1536x1024');
+    expect(chooseProviderSize('azure_openai', '1280x545')).toBe('1536x1024');
   });
 
   it('所有 provider 的返回尺寸都落在自身支持集合内', () => {
     for (const providerId of IMAGE_PROVIDER_IDS) {
-      for (const target of ['2048x871', '2048x1152'] as const) {
+      for (const target of ['1280x545', '1280x720'] as const) {
         const chosen = chooseProviderSize(providerId, target);
         expect(PROVIDER_IMAGE_SIZES[providerId]).toContain(chosen);
       }

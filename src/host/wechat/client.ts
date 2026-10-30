@@ -84,6 +84,8 @@ export interface DiagnoseResult {
 }
 
 const IMAGE_SRC_RE = /(<img\b[^>]*?\bsrc\s*=\s*)(["'])(.*?)(\2)/gis;
+/** 正文配图占位（render 后是普通文本）：images 步生成图后按顺序替换为微信 CDN 图片。 */
+const IMAGE_PLACEHOLDER_RE = /[（(]\s*图片待生成\s*[）)]/g;
 
 /**
  * 成功结果的联合访问面（tests 契约先例）：调用方 `promise.catch(() => error)` 取
@@ -233,13 +235,31 @@ export function createWeChatClient(deps: WeChatClientDeps) {
     return { newsItems };
   }
 
-  function replaceImageSources(html: string, uploadedUrls: readonly string[]): string {
+  function replaceImageSources(
+    html: string,
+    uploadedUrls: readonly string[],
+  ): { html: string; used: number } {
     let index = 0;
-    return html.replace(IMAGE_SRC_RE, (whole, prefix: string, quote: string, _source: string) => {
-      if (index >= uploadedUrls.length) return whole;
+    const replaced = html.replace(IMAGE_SRC_RE, (whole, prefix: string, quote: string, source: string) => {
+      // 只替换 images 步保留的占位；已有真实图片 URL 保持原样。
+      if (source !== 'ww-image-placeholder') return whole;
+      // 没有对应正文图：删除占位，避免微信把占位当成图片（回读会多出空图）。
+      if (index >= uploadedUrls.length) return '';
       const replacement = uploadedUrls[index];
       index += 1;
       return `${prefix}${quote}${replacement}${quote}`;
+    });
+    return { html: replaced, used: index };
+  }
+
+  /** 把 render 阶段残留的「图片待生成」文本占位替换成已上传的正文图；无对应图则删除。 */
+  function insertPlaceholderImages(html: string, urls: readonly string[]): string {
+    let index = 0;
+    return html.replace(IMAGE_PLACEHOLDER_RE, () => {
+      if (index >= urls.length) return '';
+      const url = urls[index];
+      index += 1;
+      return `<img src="${url}" alt="正文配图" style="max-width:100%;height:auto;" />`;
     });
   }
 
@@ -259,7 +279,8 @@ export function createWeChatClient(deps: WeChatClientDeps) {
       uploadedUrls.push(url);
     }
     const thumbMediaId = await uploadThumbMaterial(input.thumbImage);
-    const finalHtml = replaceImageSources(input.contentHtml, uploadedUrls);
+    const replaced = replaceImageSources(input.contentHtml, uploadedUrls);
+    const finalHtml = insertPlaceholderImages(replaced.html, uploadedUrls.slice(replaced.used));
     const mediaId = await addDraft({
       title: input.title,
       digest: input.digest,
