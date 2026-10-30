@@ -241,6 +241,12 @@ export const ConfigSettingsViewSchema = z.strictObject({
   runHistoryLimit: z.number().int().min(1).max(1000),
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).optional(),
   hotspotAggregatorUrl: z.string().optional(),
+  editorialReview: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      threshold: z.number().min(0).max(5).optional(),
+    })
+    .optional(),
 });
 export type ConfigSettingsView = z.infer<typeof ConfigSettingsViewSchema>;
 

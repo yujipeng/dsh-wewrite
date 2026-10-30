@@ -12,6 +12,7 @@ import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunS
 import { aggregateHotspots, buildHotspotSources } from './pipeline/steps/topic';
 import { suggestTopics as runSuggestTopics } from './suggest-topics';
 import { qualityGatesRunner } from './pipeline/steps/gates';
+import { DEFAULT_REVIEW_THRESHOLD, reviewArticle } from './pipeline/steps/editorial-review';
 import { resolveLogger, unwrapCredential, type CredentialsService, type HostLogger, type LlmService, type StorageDomainHandle } from './platform';
 import { createAgentToolsGate, type AgentToolsGate } from './agent-tools-gate';
 import { createCallRunBindings, type CallRunBindings } from './call-run-bindings';
@@ -53,6 +54,8 @@ const SUGGEST_CACHE_TTL_MS = 30 * 60_000;
 const SUGGEST_HOTSPOT_LIMIT = 30;
 /** 同时执行的管线 run 上限（任务中心串行队列；后续若开放设置项再替换为 settings）。 */
 const MAX_CONCURRENT_RUNS = 1;
+/** 编辑评审单次 LLM 调用上限（I-12；失败降级为仅规则门禁）。 */
+const REVIEW_TIMEOUT_MS = 45_000;
 
 export class WeWriteService {
   private readonly tables: DomainTables;
@@ -111,11 +114,29 @@ export class WeWriteService {
           for (const record of records) await this.tables.images.put(record.id, record);
         },
       }),
-      onProduced: ({ markdown, runId }) => this.articles.persistProduced(markdown, runId),
+      onProduced: ({ markdown, runId, mechanisms }) => this.articles.persistProduced(markdown, runId, mechanisms),
       writingProfile: () => this.settings.writingProfile,
+      previousMechanisms: () => this.recentMechanisms(),
       onImagesBound: ({ articleId, coverImageId, bodyImageIds }) =>
         this.articles.bindImages(articleId, { coverImageId, bodyImageIds }),
       maxConcurrentRuns: MAX_CONCURRENT_RUNS,
+      editorialReview: {
+        run: (input) => {
+          if (this.settings.editorialReview?.enabled === false) return Promise.resolve(null);
+          return reviewArticle(
+            {
+              llm: this.deps.llm as unknown as PipelineLlm,
+              provider: this.state.settings.llmDefault.provider,
+              model: this.state.settings.llmDefault.model,
+              timeoutMs: REVIEW_TIMEOUT_MS,
+              logger: this.logger,
+              nowIso: () => this.nowIso(),
+            },
+            input,
+          );
+        },
+      },
+      reviewThreshold: this.settings.editorialReview?.threshold ?? DEFAULT_REVIEW_THRESHOLD,
       now: this.nowFn,
     });
     this.scheduler = createSchedulerService({
@@ -259,6 +280,22 @@ export class WeWriteService {
    * 批次语义：复用最近一批热榜；缓存 key 绑定 batchId，热榜刷新即自动失效。
    * 同一批次 30 分钟内复用结果；refresh 绕过缓存；同 key 并发请求复用同一 Promise。
    */
+  /** I-14：近 7 天文章已用机制（去重口径；无历史返回空）。 */
+  private recentMechanisms(): string[] {
+    const cutoff = this.nowFn().getTime() - 7 * 24 * 60 * 60 * 1000;
+    const seen = new Set<string>();
+    for (const [, article] of this.tables.articles.entries()) {
+      if (!article.mechanisms?.length) continue;
+      const created = Date.parse(article.createdAt);
+      if (!Number.isFinite(created) || created < cutoff) continue;
+      for (const mechanism of article.mechanisms) {
+        const trimmed = mechanism.trim();
+        if (trimmed) seen.add(trimmed);
+      }
+    }
+    return [...seen].slice(0, 8);
+  }
+
   async suggestTopics(input: { count?: number; refresh?: boolean } = {}): Promise<SuggestedTopicsView> {
     const count = Math.min(10, Math.max(1, input.count ?? 10));
     const batch = await this.ensureHotspotBatch();
@@ -288,7 +325,7 @@ export class WeWriteService {
           model: this.state.settings.llmDefault.model,
           logger: this.logger,
           profile: this.settings.writingProfile,
-          history: { titles: historyTitles },
+          history: { titles: historyTitles, keywords: this.recentMechanisms() },
           timeoutMs: this.deps.suggestTimeoutMs ?? SUGGEST_TIMEOUT_MS,
           nowIso: () => this.nowIso(),
         },

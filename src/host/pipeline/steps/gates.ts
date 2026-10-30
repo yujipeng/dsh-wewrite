@@ -122,6 +122,8 @@ export interface GatesReport {
   readonly sources: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** 大纲骨架终检（v0.5）：仅在启动 brief 携带 outline 时启用——draft 层改写/遗漏给定节的最后防线。 */
   readonly outlineSkeleton: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
+  /** I-11：mustInclude / mustAvoid 机械门禁；未携带时 undefined。 */
+  readonly contract: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   readonly issues: readonly string[];
 }
 
@@ -134,6 +136,10 @@ export interface RunGatesInput {
   readonly userText?: readonly string[];
   /** 启动 brief 的给定大纲节名（v0.5 骨架绑）：给了即启用骨架终检。 */
   readonly outlineSkeleton?: readonly string[];
+  /** I-11：必须原样出现的事实/机制。 */
+  readonly mustInclude?: readonly string[];
+  /** I-11：不得原样出现的内容。 */
+  readonly mustAvoid?: readonly string[];
 }
 
 // ── 来源门禁（v0.5 docs/v0.5-launch-brief.md §2「来源」硬绑）──────────────────
@@ -235,6 +241,20 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
       })()
     : undefined;
 
+  // I-11：合同硬项——按字面包含判定；不用正则，天然避免元字符误伤。
+  const contract = input.mustInclude?.length || input.mustAvoid?.length
+    ? (() => {
+        const issues: string[] = [];
+        for (const item of input.mustInclude ?? []) {
+          if (!text.includes(item)) issues.push(`缺少必须出现的内容：${item}`);
+        }
+        for (const item of input.mustAvoid ?? []) {
+          if (text.includes(item)) issues.push(`出现禁止内容：${item}`);
+        }
+        return { passed: issues.length === 0, issues };
+      })()
+    : undefined;
+
   const issues: string[] = [];
   if (bannedWords.length) issues.push(`禁用词命中 ${bannedWords.length} 组`);
   if (internalMarkers) issues.push(`内部标记残留 ${internalMarkers} 处`);
@@ -245,6 +265,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
   if (!figureNumbering.passed) issues.push(...figureNumbering.issues);
   if (sources && !sources.passed) issues.push(...sources.issues);
   if (outlineSkeleton && !outlineSkeleton.passed) issues.push(...outlineSkeleton.issues);
+  if (contract && !contract.passed) issues.push(...contract.issues);
 
   const report: GatesReport = {
     strict: true,
@@ -258,6 +279,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
     figureNumbering,
     sources,
     outlineSkeleton,
+    contract,
     issues,
   };
   return { passed: issues.length === 0, report };
@@ -265,15 +287,20 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
 
 /** engine 装配适配器（GatesRunner 形状；来源/骨架门禁输入透传）。 */
 export const qualityGatesRunner: GatesRunner = {
-  async run(input: { markdown: string; sources?: readonly string[]; userText?: readonly string[]; outlineSkeleton?: readonly string[] }) {
+  async run(input: {
+    markdown: string;
+    sources?: readonly string[];
+    userText?: readonly string[];
+    outlineSkeleton?: readonly string[];
+    mustInclude?: readonly string[];
+    mustAvoid?: readonly string[];
+  }) {
     return runQualityGates({
       markdown: input.markdown,
-      ...((input.sources?.length || input.outlineSkeleton?.length)
-        ? {
-            ...(input.sources?.length ? { sources: input.sources, userText: input.userText } : {}),
-            ...(input.outlineSkeleton?.length ? { outlineSkeleton: input.outlineSkeleton } : {}),
-          }
-        : {}),
+      ...(input.sources?.length ? { sources: input.sources, userText: input.userText } : {}),
+      ...(input.outlineSkeleton?.length ? { outlineSkeleton: input.outlineSkeleton } : {}),
+      ...(input.mustInclude?.length ? { mustInclude: input.mustInclude } : {}),
+      ...(input.mustAvoid?.length ? { mustAvoid: input.mustAvoid } : {}),
     });
   },
 };

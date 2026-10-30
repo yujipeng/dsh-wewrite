@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RunRecord, StepRecord } from '@/host/domain';
-import type { RunParams } from '@/shared/contract';
+import { LaunchBriefSchema, type RunParams } from '@/shared/contract';
 import { createPipelineEngine, type PipelineLlm, type RunStore } from '@/host/pipeline/engine';
 import { draftUserPrompt, outlineUserPrompt } from '@/host/pipeline/llm';
 import { runQualityGates } from '@/host/pipeline/steps/gates';
@@ -379,5 +379,79 @@ describe('ArticleStore.persistProduced：brief.title 覆盖推导标题', () => 
     const record = articles.get(articleId) as { title: string };
     expect(record.title.length).toBeGreaterThan(0);
     expect(record.title).not.toBe('我定的标题');
+  });
+});
+
+describe('I-10 写作合同扩展', () => {
+  it('LaunchBriefSchema 接受 thesis/boundary/counterpoint/audience/mustInclude/mustAvoid', () => {
+    const parsed = LaunchBriefSchema.safeParse({
+      thesis: '保本线是时间分布题',
+      boundary: '不写行业前景',
+      counterpoint: '反方说房租会降',
+      audience: { who: '小城店主', context: '签约前', question: '一天卖多少杯' },
+      mustInclude: ['46 杯', '房租 6000'],
+      mustAvoid: ['爆款', '必看'],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('draftUserPrompt 注入合同字段', () => {
+    const prompt = draftUserPrompt('小城咖啡店', '## 一', {
+      thesis: '保本线是时间分布题',
+      boundary: '不写行业前景',
+      counterpoint: '反方说房租会降',
+      audience: { who: '小城店主', context: '签约前', question: '一天卖多少杯' },
+      mustInclude: ['46 杯', '房租 6000'],
+      mustAvoid: ['爆款', '必看'],
+    });
+    expect(prompt).toContain('核心主张');
+    expect(prompt).toContain('保本线是时间分布题');
+    expect(prompt).toContain('不写行业前景');
+    expect(prompt).toContain('反方说房租会降');
+    expect(prompt).toContain('小城店主');
+    expect(prompt).toContain('46 杯');
+    expect(prompt).toContain('必看');
+  });
+
+  it('旧 brief 不注入空段（一句话模式零损伤）', () => {
+    const prompt = draftUserPrompt('主题', '## 一', { title: 'T' });
+    expect(prompt).not.toContain('核心主张');
+    expect(prompt).not.toContain('必须出现');
+    expect(prompt).not.toContain('不得出现');
+  });
+});
+
+describe('I-11 mustInclude / mustAvoid 门禁', () => {
+  const body = '## 一\n' + '房租 6000 元，一天卖 46 杯。'.repeat(30);
+
+  it('mustInclude 全部出现 → contract passed', () => {
+    const { report } = runQualityGates({ markdown: body, mustInclude: ['46 杯', '房租 6000'] });
+    expect(report.contract?.passed).toBe(true);
+    expect(report.contract?.issues).toEqual([]);
+  });
+
+  it('mustInclude 缺失 → 阻断并给出 issue', () => {
+    const { report } = runQualityGates({ markdown: body, mustInclude: ['46 杯', '翻台率'] });
+    expect(report.contract?.passed).toBe(false);
+    expect(report.contract?.issues.join('')).toContain('翻台率');
+    expect(report.issues.join('')).toContain('翻台率');
+  });
+
+  it('mustAvoid 命中 → 阻断', () => {
+    const { report } = runQualityGates({ markdown: body, mustAvoid: ['房租 6000'] });
+    expect(report.contract?.passed).toBe(false);
+    expect(report.contract?.issues.join('')).toContain('房租 6000');
+  });
+
+  it('正则元字符按字面匹配（不做正则解释）', () => {
+    const hit = runQualityGates({ markdown: '正文写 a.*b 字面', mustAvoid: ['a.*b'] });
+    expect(hit.report.contract?.passed).toBe(false);
+    const miss = runQualityGates({ markdown: '正文写 axxb', mustAvoid: ['a.*b'] });
+    expect(miss.report.contract?.passed).toBe(true);
+  });
+
+  it('空数组不激活 contract', () => {
+    const { report } = runQualityGates({ markdown: body, mustInclude: [], mustAvoid: [] });
+    expect(report.contract).toBeUndefined();
   });
 });

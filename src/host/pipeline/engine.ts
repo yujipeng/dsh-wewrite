@@ -10,6 +10,7 @@ import type { RunParams } from '../../shared/contract';
 import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type PipelineLlm } from './llm';
 import { isSourceUrlVisible } from './steps/gates';
+import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 
 export type { LlmStreamOptions, PipelineLlm, PipelineLlmChunk } from './llm';
 
@@ -33,6 +34,8 @@ export interface GatesRunner {
     sources?: readonly string[];
     userText?: readonly string[];
     outlineSkeleton?: readonly string[];
+    mustInclude?: readonly string[];
+    mustAvoid?: readonly string[];
   }): Promise<{ passed: boolean; report: unknown }>;
 }
 
@@ -54,7 +57,9 @@ export interface PipelineDeps {
   readonly images: ImagesGenerator;
   readonly now?: () => Date;
   /** 渲染完成后回调（service 层把成稿落 article 记录）；返回文章 id 供后续回绑。 */
-  readonly onProduced?: (output: { markdown: string; runId: string }) => Promise<string | void>;
+  readonly onProduced?: (output: { markdown: string; runId: string; mechanisms?: readonly string[] }) => Promise<string | void>;
+  /** I-14：近 7 天已用机制（注入 draft 的 mustAvoid，避免连续同套路）。 */
+  readonly previousMechanisms?: () => readonly string[];
   /** 公众号写作要求（设置页 writingProfile）；每次文本步实时读取，改设置即生效。 */
   readonly writingProfile?: () => import('../../shared/schema-base').WritingProfile | undefined;
   /** images 步完成后回调（封面/正文图回写文章，P0-1：推送核心流绑定链）。 */
@@ -65,6 +70,12 @@ export interface PipelineDeps {
   }) => Promise<void>;
   /** 同时执行的 run 上限（FIFO 排队，默认 1 = 串行）。 */
   readonly maxConcurrentRuns?: number;
+  /** I-12：五维编辑评审（规则门禁通过后调用；返回 null 表示降级，不阻断）。 */
+  readonly editorialReview?: {
+    run(input: { markdown: string; topic?: string }): Promise<EditorialReview | null>;
+  };
+  /** I-12：评审阈值（默认 3.5）。 */
+  readonly reviewThreshold?: number;
 }
 
 export interface StartOptions {
@@ -204,6 +215,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     let outline = '';
     let draft = '';
     let producedArticleId: string | undefined;
+    let reviewMechanisms: string[] | undefined;
     let runStatus: 'succeeded' | 'failed' | 'cancelled' = 'succeeded';
     let runError: { code: string; message: string } | undefined;
     let imagesResult: { coverImageId?: string; bodyImageIds: string[] } | undefined;
@@ -279,6 +291,11 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           // 先带反馈重写一次；仍不合规交 gates 终检拦（单一强制执行点）。
           const skeleton = params.brief?.outline?.length ? params.brief.outline : undefined;
           const briefSources = params.brief?.sources?.length ? params.brief.sources : undefined;
+          // I-14：近 7 天已用机制作为 mustAvoid 注入成稿提示，避免连续同套路。
+          const previousMechanisms = deps.previousMechanisms?.() ?? [];
+          const promptBrief = previousMechanisms.length
+            ? { ...(params.brief ?? {}), mustAvoid: [...(params.brief?.mustAvoid ?? []), ...previousMechanisms] }
+            : params.brief;
           let retryMissing: readonly string[] | undefined;
           let retryInvisible: readonly string[] | undefined;
           let draftText = '';
@@ -288,7 +305,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               {
                 purpose: 'wewrite-pipeline',
                 system: pipelineSystemPrompt(deps.writingProfile?.()),
-                user: draftUserPrompt(topic, outline, params.brief, retryMissing, retryInvisible, deps.writingProfile?.()),
+                user: draftUserPrompt(topic, outline, promptBrief, retryMissing, retryInvisible, deps.writingProfile?.()),
                 ...llmCall,
               },
               signal,
@@ -309,21 +326,26 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           patchStep(runId, stepName, { metrics: { chars: draft.length } });
         } else if (stepName === 'gates') {
           const brief = params.brief;
-          const verdict = await deps.gates.run({
-            markdown: draft,
-            ...(brief?.sources?.length
-              ? {
-                  sources: brief.sources,
-                  userText: [
-                    topic,
-                    ...(brief.title ? [brief.title] : []),
-                    ...(brief.approach ? [brief.approach] : []),
-                    ...(brief.outline ?? []),
-                  ],
-                }
-              : {}),
-            ...(brief?.outline?.length ? { outlineSkeleton: brief.outline } : {}),
-          });
+          const runGates = () =>
+            deps.gates.run({
+              markdown: draft,
+              ...(brief?.sources?.length
+                ? {
+                    sources: brief.sources,
+                    userText: [
+                      topic,
+                      ...(brief.title ? [brief.title] : []),
+                      ...(brief.approach ? [brief.approach] : []),
+                      ...(brief.outline ?? []),
+                    ],
+                  }
+                : {}),
+              ...(brief?.outline?.length ? { outlineSkeleton: brief.outline } : {}),
+              ...(brief?.mustInclude?.length ? { mustInclude: brief.mustInclude } : {}),
+              ...(brief?.mustAvoid?.length ? { mustAvoid: brief.mustAvoid } : {}),
+            });
+
+          let verdict = await runGates();
           patchStep(runId, stepName, { metrics: { report: verdict.report } });
           if (!verdict.passed) {
             const issues = (verdict.report as { issues?: unknown }).issues;
@@ -333,11 +355,92 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                 : '质量门禁未通过，默认推送路径已被阻断';
             throw new PipelineStepError('gates-failed', summary, verdict.report);
           }
+
+          if (deps.editorialReview) {
+            let review = await deps.editorialReview
+              .run({ markdown: draft, ...(topic ? { topic } : {}) })
+              .catch(() => null);
+            let judgment = review
+              ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)
+              : null;
+            let revised = false;
+
+            // I-13：评审失败且存在 majorIssues → 带意见自动重写一轮，再跑规则门禁 + 评审。
+            if (review && judgment && !judgment.passed && review.majorIssues.length > 0) {
+              const issues = [...review.blockers, ...review.majorIssues];
+              const rewrite = await streamLlmText(
+                deps.llm,
+                {
+                  purpose: 'wewrite-pipeline',
+                  system: pipelineSystemPrompt(deps.writingProfile?.()),
+                  user: [
+                    draftUserPrompt(
+                      topic,
+                      outline,
+                      params.brief,
+                      undefined,
+                      undefined,
+                      deps.writingProfile?.(),
+                    ),
+                    '',
+                    '编辑评审意见（必须逐条修正；输出完整成稿，不要解释）：',
+                    ...issues.map((issue) => `- ${issue}`),
+                  ].join('\n'),
+                  ...resolveLlmCall(params),
+                },
+                signal,
+              );
+              if (rewrite.status === 'aborted') throwAborted();
+              if (rewrite.status === 'error') throw new PipelineStepError(rewrite.code, rewrite.message);
+              if (rewrite.text) {
+                draft = rewrite.text;
+                revised = true;
+                patchStep(runId, stepName, { metrics: { chars: draft.length, revised: true } });
+                verdict = await runGates();
+                if (!verdict.passed) {
+                  const issues2 = (verdict.report as { issues?: unknown }).issues;
+                  const summary =
+                    Array.isArray(issues2) && issues2.length
+                      ? `质量门禁未通过（自动修订后）：${issues2.slice(0, 3).map(String).join('；')}${issues2.length > 3 ? ' 等' : ''}`
+                      : '质量门禁未通过（自动修订后），默认推送路径已被阻断';
+                  throw new PipelineStepError('gates-failed', summary, verdict.report);
+                }
+                review = await deps.editorialReview
+                  .run({ markdown: draft, ...(topic ? { topic } : {}) })
+                  .catch(() => null);
+                judgment = review
+                  ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)
+                  : null;
+              }
+            }
+
+            if (!review) {
+              patchStep(runId, stepName, {
+                metrics: { report: verdict.report, review: { unavailable: true }, ...(revised ? { revised } : {}) },
+              });
+            } else {
+              patchStep(runId, stepName, {
+                metrics: { report: verdict.report, review, ...(revised ? { revised } : {}) },
+              });
+              if (review) reviewMechanisms = [...review.mechanisms];
+              if (judgment && !judgment.passed) {
+                throw new PipelineStepError(
+                  'gates-failed',
+                  `编辑评审未通过${revised ? '（自动修订后）' : ''}：${judgment.issues.slice(0, 3).join('；')}`,
+                  { report: verdict.report, review },
+                );
+              }
+            }
+          }
         } else if (stepName === 'render') {
           const html = deps.renderer.convert({ markdown: draft, theme: params.theme });
           patchStep(runId, stepName, { metrics: { htmlChars: html.length } });
           if (deps.onProduced) {
-            const returnedArticleId = await deps.onProduced({ markdown: draft, runId });
+            const returnedArticleId = await deps.onProduced({
+              markdown: draft,
+              runId,
+              ...(reviewMechanisms ? { mechanisms: reviewMechanisms } : {}),
+            });
             if (typeof returnedArticleId === 'string' && returnedArticleId) producedArticleId = returnedArticleId;
           }
         } else {

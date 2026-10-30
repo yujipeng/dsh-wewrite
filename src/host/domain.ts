@@ -34,6 +34,13 @@ export const SettingsRecordSchema = z.strictObject({
   runHistoryLimit: z.number().int().min(1).max(1000).default(200),
   hotspotSources: z.array(z.enum(['weibo', 'toutiao', 'baidu', 'hackernews'])).default(['weibo', 'toutiao', 'baidu']),
   hotspotAggregatorUrl: z.string().default(''),
+  /** I-12：编辑评审开关与阈值（缺省即启用、3.5）。 */
+  editorialReview: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      threshold: z.number().min(0).max(5).optional(),
+    })
+    .optional(),
 });
 export type SettingsRecord = z.infer<typeof SettingsRecordSchema>;
 
@@ -50,6 +57,8 @@ export const ArticleRecordSchema = z.strictObject({
   theme: z.string(),
   bodyImageIds: z.array(z.string()).max(10).default([]),
   coverImageId: z.string().optional(),
+  /** I-14：评审抽取的本篇解释机制（沉没成本/损失厌恶等），供跨篇去重。 */
+  mechanisms: z.array(z.string().max(120)).max(20).optional(),
   wechatMediaId: z.string().optional(),
   thumbMediaId: z.string().optional(),
   lastRunId: z.string().optional(),

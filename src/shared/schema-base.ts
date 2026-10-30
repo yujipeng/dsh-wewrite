@@ -82,6 +82,24 @@ export const LaunchBriefSchema = z.strictObject({
   outline: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
   /** 硬绑：来源必须以可见 URL 文本进正文（gates 机械检查），AI 不得编造未给来源。 */
   sources: z.array(z.url()).min(1).max(10).optional(),
+  /** I-10：一句话主张，全文论证围绕它展开。 */
+  thesis: z.string().trim().min(1).max(200).optional(),
+  /** I-10：边界——这篇不写什么，避免跑题与越界。 */
+  boundary: z.string().trim().min(1).max(500).optional(),
+  /** I-10：最强反方及回应。 */
+  counterpoint: z.string().trim().min(1).max(500).optional(),
+  /** I-10：目标读者（谁 / 场景 / 关心的问题）。 */
+  audience: z
+    .strictObject({
+      who: z.string().trim().min(1).max(120).optional(),
+      context: z.string().trim().min(1).max(200).optional(),
+      question: z.string().trim().min(1).max(200).optional(),
+    })
+    .optional(),
+  /** I-10/I-11：必须原样出现的事实/机制（机械门禁）。 */
+  mustInclude: z.array(z.string().trim().min(1).max(200)).min(1).max(10).optional(),
+  /** I-10/I-11：不得出现的内容（机械门禁）。 */
+  mustAvoid: z.array(z.string().trim().min(1).max(200)).min(1).max(10).optional(),
 });
 export type LaunchBrief = z.infer<typeof LaunchBriefSchema>;
 

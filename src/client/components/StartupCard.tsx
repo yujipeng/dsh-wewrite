@@ -28,6 +28,14 @@ export function StartupCard({ inputRef: externalInputRef }: { inputRef?: RefObje
   const [approach, setApproach] = useState('');
   const [outlineText, setOutlineText] = useState('');
   const [sourcesText, setSourcesText] = useState('');
+  const [thesis, setThesis] = useState('');
+  const [boundary, setBoundary] = useState('');
+  const [counterpoint, setCounterpoint] = useState('');
+  const [audienceWho, setAudienceWho] = useState('');
+  const [audienceContext, setAudienceContext] = useState('');
+  const [audienceQuestion, setAudienceQuestion] = useState('');
+  const [mustIncludeText, setMustIncludeText] = useState('');
+  const [mustAvoidText, setMustAvoidText] = useState('');
   const localInputRef = useRef<HTMLInputElement | null>(null);
   // 类型注：局部 ref 是 MutableRefObject<HTMLInputElement | null>、外部 prop 是 RefObject<HTMLInputElement>，
   // 两者 current 同为 HTMLInputElement | null、各自可赋给 input 的 ref prop（联合类型的两员都合法）；
@@ -65,6 +73,24 @@ export function StartupCard({ inputRef: externalInputRef }: { inputRef?: RefObje
       ...(trimmedApproach ? { approach: trimmedApproach } : {}),
       ...(outline.length ? { outline } : {}),
       ...(sources.length ? { sources } : {}),
+      ...(thesis.trim() ? { thesis: thesis.trim() } : {}),
+      ...(boundary.trim() ? { boundary: boundary.trim() } : {}),
+      ...(counterpoint.trim() ? { counterpoint: counterpoint.trim() } : {}),
+      ...((audienceWho.trim() || audienceContext.trim() || audienceQuestion.trim())
+        ? {
+            audience: {
+              ...(audienceWho.trim() ? { who: audienceWho.trim() } : {}),
+              ...(audienceContext.trim() ? { context: audienceContext.trim() } : {}),
+              ...(audienceQuestion.trim() ? { question: audienceQuestion.trim() } : {}),
+            },
+          }
+        : {}),
+      ...(mustIncludeText.trim()
+        ? { mustInclude: mustIncludeText.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 10) }
+        : {}),
+      ...(mustAvoidText.trim()
+        ? { mustAvoid: mustAvoidText.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 10) }
+        : {}),
     };
     return Object.keys(brief).length ? brief : undefined;
   }
@@ -98,6 +124,14 @@ export function StartupCard({ inputRef: externalInputRef }: { inputRef?: RefObje
     setApproach('');
     setOutlineText('');
     setSourcesText('');
+    setThesis('');
+    setBoundary('');
+    setCounterpoint('');
+    setAudienceWho('');
+    setAudienceContext('');
+    setAudienceQuestion('');
+    setMustIncludeText('');
+    setMustAvoidText('');
   }
 
   return (
@@ -144,7 +178,7 @@ export function StartupCard({ inputRef: externalInputRef }: { inputRef?: RefObje
         onClick={() => setMoreOpen((open) => !open)}
       >
         <Icon name={moreOpen ? 'chevron-up' : 'chevron-down'} size={12} />
-        {moreOpen ? '收起更多信息' : '更多信息（标题 · 思路 · 大纲 · 来源）'}
+        {moreOpen ? '收起更多信息' : '更多信息（标题 · 思路 · 合同 · 大纲 · 来源）'}
       </button>
       {moreOpen ? (
         <div className="ww-startup__brief" data-testid="ww-startup-brief">
@@ -202,6 +236,103 @@ export function StartupCard({ inputRef: externalInputRef }: { inputRef?: RefObje
               rows={3}
               value={sourcesText}
               onChange={(event) => setSourcesText(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label" htmlFor="ww-startup-brief-thesis">
+              核心主张 <span className="ww-startup__hint">一句话，全文围绕它论证</span>
+            </label>
+            <textarea
+              id="ww-startup-brief-thesis"
+              className="ww-startup__input ww-startup__input--area"
+              data-testid="ww-startup-brief-thesis"
+              placeholder="可选：这篇要论证什么"
+              rows={2}
+              value={thesis}
+              onChange={(event) => setThesis(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label" htmlFor="ww-startup-brief-boundary">
+              边界 <span className="ww-startup__hint">这篇不写什么</span>
+            </label>
+            <textarea
+              id="ww-startup-brief-boundary"
+              className="ww-startup__input ww-startup__input--area"
+              data-testid="ww-startup-brief-boundary"
+              placeholder="可选：避免跑题与越界"
+              rows={2}
+              value={boundary}
+              onChange={(event) => setBoundary(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label" htmlFor="ww-startup-brief-counterpoint">
+              最强反方 <span className="ww-startup__hint">并给出回应</span>
+            </label>
+            <textarea
+              id="ww-startup-brief-counterpoint"
+              className="ww-startup__input ww-startup__input--area"
+              data-testid="ww-startup-brief-counterpoint"
+              placeholder="可选：最可能被反驳的点"
+              rows={2}
+              value={counterpoint}
+              onChange={(event) => setCounterpoint(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label">目标读者</label>
+            <input
+              type="text"
+              className="ww-startup__input"
+              data-testid="ww-startup-brief-audience-who"
+              placeholder="谁在看（可选）"
+              value={audienceWho}
+              onChange={(event) => setAudienceWho(event.target.value)}
+            />
+            <input
+              type="text"
+              className="ww-startup__input"
+              data-testid="ww-startup-brief-audience-context"
+              placeholder="什么场景下看（可选）"
+              value={audienceContext}
+              onChange={(event) => setAudienceContext(event.target.value)}
+            />
+            <input
+              type="text"
+              className="ww-startup__input"
+              data-testid="ww-startup-brief-audience-question"
+              placeholder="最关心的问题（可选）"
+              value={audienceQuestion}
+              onChange={(event) => setAudienceQuestion(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label" htmlFor="ww-startup-brief-must-include">
+              必须出现 <span className="ww-startup__hint">每行一条，机械门禁</span>
+            </label>
+            <textarea
+              id="ww-startup-brief-must-include"
+              className="ww-startup__input ww-startup__input--area"
+              data-testid="ww-startup-brief-must-include"
+              placeholder="可选：必须出现的事实/机制"
+              rows={3}
+              value={mustIncludeText}
+              onChange={(event) => setMustIncludeText(event.target.value)}
+            />
+          </div>
+          <div className="ww-startup__field">
+            <label className="ww-startup__label" htmlFor="ww-startup-brief-must-avoid">
+              不得出现 <span className="ww-startup__hint">每行一条，机械门禁</span>
+            </label>
+            <textarea
+              id="ww-startup-brief-must-avoid"
+              className="ww-startup__input ww-startup__input--area"
+              data-testid="ww-startup-brief-must-avoid"
+              placeholder="可选：禁止出现的内容"
+              rows={3}
+              value={mustAvoidText}
+              onChange={(event) => setMustAvoidText(event.target.value)}
             />
           </div>
         </div>

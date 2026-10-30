@@ -591,3 +591,86 @@ describe('串行队列（任务中心：FIFO + 并发上限 + 排队取消）', 
     await second.done;
   });
 });
+
+describe('I-13 评审失败自动修订一轮', () => {
+  const baseReview = {
+    dimensions: { accuracy: 4, viewpoint: 4, usefulness: 4, voice: 4, readability: 4 },
+    blockers: [],
+    majorIssues: [],
+    mechanisms: [],
+    notes: '',
+    model: 'm',
+    generatedAtIso: '2026-10-30T00:00:00.000Z',
+  };
+  const failReview = {
+    ...baseReview,
+    dimensions: { ...baseReview.dimensions, viewpoint: 3 },
+    majorIssues: ['把论点写具体'],
+  };
+
+  it('首轮失败 → 自动重写一次并复评通过', async () => {
+    const review = vi.fn().mockResolvedValueOnce(failReview).mockResolvedValueOnce(baseReview);
+    const deps = { ...makeDeps(), editorialReview: { run: review } };
+    const engine = createPipelineEngine(deps);
+
+    const runId = await engine.start({ trigger: 'manual', params: baseParams });
+    const run = deps.store.get(runId);
+
+    expect(run?.status).toBe('succeeded');
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(deps.llm.stream).toHaveBeenCalledTimes(3); // outline + draft + 自动重写
+    expect(run?.steps.find((step) => step.name === 'gates')?.metrics?.revised).toBe(true);
+  });
+
+  it('第二轮仍失败 → run failed，错误信息标明自动修订后', async () => {
+    const review = vi.fn().mockResolvedValue(failReview);
+    const deps = { ...makeDeps(), editorialReview: { run: review } };
+    const engine = createPipelineEngine(deps);
+
+    const runId = await engine.start({ trigger: 'manual', params: baseParams });
+    const run = deps.store.get(runId);
+
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.message).toContain('自动修订后');
+    expect(review).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('I-14 跨篇已用机制', () => {
+  const reviewWithMechanisms = {
+    dimensions: { accuracy: 4, viewpoint: 4, usefulness: 4, voice: 4, readability: 4 },
+    blockers: [],
+    majorIssues: [],
+    mechanisms: ['沉没成本'],
+    notes: '',
+    model: 'm',
+    generatedAtIso: '2026-10-30T00:00:00.000Z',
+  };
+
+  it('评审 mechanisms 进入 onProduced 落库回调', async () => {
+    const onProduced = vi.fn(async () => 'art_1');
+    const deps = {
+      ...makeDeps(),
+      editorialReview: { run: vi.fn(async () => reviewWithMechanisms) },
+      onProduced,
+    };
+    const engine = createPipelineEngine(deps);
+
+    await engine.start({ trigger: 'manual', params: baseParams });
+
+    expect(onProduced).toHaveBeenCalledWith(expect.objectContaining({ mechanisms: ['沉没成本'] }));
+  });
+
+  it('previousMechanisms 注入 draft 提示的「不得出现」段', async () => {
+    const deps = { ...makeDeps(), previousMechanisms: () => ['沉没成本'] };
+    const engine = createPipelineEngine(deps);
+
+    await engine.start({ trigger: 'manual', params: baseParams });
+
+    const calls = (deps.llm.stream as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const draftOptions = calls[1]?.[0] as { messages: { content: { text: string }[] }[] };
+    const text = draftOptions.messages[0].content[0].text;
+    expect(text).toContain('沉没成本');
+    expect(text).toContain('不得出现');
+  });
+});

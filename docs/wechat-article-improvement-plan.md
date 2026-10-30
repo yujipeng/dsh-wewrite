@@ -1,6 +1,6 @@
 # 借鉴 wechat-article 全流程的改进计划
 
-> 状态：**Phase 1/2 已完成并验证**（2026-10-30：Phase 0 图像 spike、I-01~I-09 已完成；真机推送 `pushVerify.ok=true`；Phase 2 已在选题页验证推荐/评分/来源类型/边界说明）
+> 状态：**Phase 1/2/3 已完成并验证**（2026-10-30：Phase 0 图像 spike、I-01~I-14 已完成；真机推送 `pushVerify.ok=true`；Phase 3 写作合同/门禁/五维评审/自动修订/跨篇机制已落地）
 > 日期：2026-10-29（2026-10-30 更新实施状态）
 > 对照基线：`~/Documents/wechat-article/`（2026-10-22 ~ 10-29，7 篇已推草稿）与 `~/Documents/wechat-article/.wewrite/`
 > 本文只描述「补什么、放在哪、怎么验收」，不含代码改动。
@@ -155,21 +155,21 @@
 
 ### 3.3 P1 — 写作合同与编辑评审
 
-#### I-10 写作合同扩展
+#### I-10 写作合同扩展 ✅ 已完成（2026-10-30）
 
 - **问题**：`RunParams.brief` 只有四个字段，模型拿不到「这篇要论证什么、边界在哪、反方是谁」。
 - **做法**：可选新增 `thesis`（一句话主张）、`boundary`（不写什么）、`counterpoint`（最强反方及回应）、`audience`（who/context/question）、`mustInclude`（必须出现的事实/机制）、`mustAvoid`（不得出现）。全部可选，缺省时提示词与现状完全一致。
 - **落点**：`src/shared/contract.ts`（`RunParamsSchema`）、`src/host/pipeline/llm.ts`、`src/client/components/StartupCard.tsx`（「更多信息」折叠区）。
 - **验收**：旧参数快照不变；新字段注入后的 prompt 快照；`tests/host/launch-brief.test.ts` 扩展。
 
-#### I-11 mustInclude / mustAvoid 机械门禁
+#### I-11 mustInclude / mustAvoid 机械门禁 ✅ 已完成（2026-10-30）
 
 - **问题**：外部流程用 `final-check.py` 逐条检查「必须出现」和「禁区」，项目只有禁用词表。
 - **做法**：`gates.ts` 增加两项：`mustInclude` 中每项必须原样出现；`mustAvoid` 中每项不得出现（正则安全转义）。二者都进入 `GatesReport.issues`，沿用「任一硬项不过即阻断」。
 - **落点**：`src/host/pipeline/steps/gates.ts`。
 - **验收**：单测覆盖命中/未命中/正则元字符/空数组；报告结构快照。
 
-#### I-12 编辑评审（五维评分）
+#### I-12 编辑评审（五维评分） ✅ 已完成（2026-10-30）
 
 - **问题**：规则门禁只能抓禁用词与结构问题，抓不到「论证是否成立、是否自相矛盾、是否编造亲历」。
 - **做法**：
@@ -179,14 +179,14 @@
 - **落点**：`src/host/pipeline/steps/gates.ts`、`src/host/pipeline/engine.ts`（透传评审输入）、`src/client/components/GateReport.tsx`。
 - **验收**：JSON 解析容错（缺字段、非 JSON、分数越界）；四条判定路径单测；LLM 失败时按「评审不可用」处理（可配置：阻断或降级为仅规则，默认降级并警告）。
 
-#### I-13 自动修订一轮
+#### I-13 自动修订一轮 ✅ 已完成（2026-10-30）
 
 - **问题**：评审不通过时目前只能人工改稿。
 - **做法**：评审失败且存在 `majorIssues` 时，带 issues 列表重写一次成稿，再跑一次规则门禁 + 评审；仍不通过则阻断推送。最多一轮，避免无限循环与成本失控。
 - **落点**：`src/host/pipeline/engine.ts`（draft 自愈机制已存在，复用同一模式）。
 - **验收**：两次调用次数断言；第二轮仍失败时 `run.status=failed` 且错误信息含首轮 issues。
 
-#### I-14 跨篇已用机制
+#### I-14 跨篇已用机制 ✅ 已完成（2026-10-30）
 
 - **问题**：外部流程显式排除「近期已用机制」（沉没成本、弱连接、社会证明……），避免连续几篇同一套解释。项目没有这个概念。
 - **做法**：文章记录增加可选 `mechanisms: string[]`（成稿后由评审阶段抽取并随文章保存）；选题与写作时把近 N 篇（默认 7 天）的 mechanisms 注入 `mustAvoid`，并在选题打分中作为去重依据。

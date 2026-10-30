@@ -135,6 +135,12 @@ export interface LaunchBriefForPrompt {
   readonly approach?: string;
   readonly outline?: readonly string[];
   readonly sources?: readonly string[];
+  readonly thesis?: string;
+  readonly boundary?: string;
+  readonly counterpoint?: string;
+  readonly audience?: { readonly who?: string; readonly context?: string; readonly question?: string };
+  readonly mustInclude?: readonly string[];
+  readonly mustAvoid?: readonly string[];
 }
 
 export function outlineUserPrompt(
@@ -191,6 +197,29 @@ export function draftUserPrompt(
   }
   if (brief?.approach) {
     lines.push('', '总体思路（用户主张，全文必须围绕它展开，不得偏离）：', brief.approach);
+  }
+  if (brief?.thesis) {
+    lines.push('', '核心主张（全文论证围绕它展开）：', brief.thesis);
+  }
+  if (brief?.boundary) {
+    lines.push('', '边界（这篇不写什么，不要越界）：', brief.boundary);
+  }
+  if (brief?.counterpoint) {
+    lines.push('', '最强反方与回应：', brief.counterpoint);
+  }
+  if (brief?.audience) {
+    const audience = [
+      brief.audience.who ? `- 读者：${brief.audience.who}` : '',
+      brief.audience.context ? `- 场景：${brief.audience.context}` : '',
+      brief.audience.question ? `- 关心的问题：${brief.audience.question}` : '',
+    ].filter(Boolean);
+    if (audience.length) lines.push('', '目标读者：', ...audience);
+  }
+  if (brief?.mustInclude?.length) {
+    lines.push('', '必须出现的事实/机制（正文需原样出现）：', ...brief.mustInclude.map((item) => `- ${item}`));
+  }
+  if (brief?.mustAvoid?.length) {
+    lines.push('', '不得出现的内容（正文禁止出现）：', ...brief.mustAvoid.map((item) => `- ${item}`));
   }
   if (brief?.sources?.length) {
     lines.push(

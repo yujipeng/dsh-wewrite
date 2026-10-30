@@ -75,7 +75,7 @@ export class ArticleStore {
   }
 
   /** 管线渲染完成后落库：绑定 articleId 则更新，否则按成稿新建（slug/标题/摘要推导）。返回文章 id。 */
-  async persistProduced(markdown: string, runId: string): Promise<string> {
+  async persistProduced(markdown: string, runId: string, mechanisms?: readonly string[]): Promise<string> {
     return this.deps.serialize(async () => {
       const now = this.deps.nowIso();
       const run = this.deps.runStore.get(runId);
@@ -94,6 +94,12 @@ export class ArticleStore {
         ...(existing?.coverImageId ? { coverImageId: existing.coverImageId } : {}),
         ...(existing?.wechatMediaId ? { wechatMediaId: existing.wechatMediaId } : {}),
         ...(existing?.thumbMediaId ? { thumbMediaId: existing.thumbMediaId } : {}),
+        // I-14：新评审机制优先；没有新结果时保留旧机制。
+        ...(mechanisms?.length
+          ? { mechanisms: mechanisms.slice(0, 20) }
+          : existing?.mechanisms
+            ? { mechanisms: existing.mechanisms }
+            : {}),
         lastRunId: runId,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
