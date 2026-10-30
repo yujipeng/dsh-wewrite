@@ -107,18 +107,18 @@ describe('AC-M1-12 单一真源（agentToolsEnabled：显式设置 > 插件 conf
     };
 
     const disposers = registerAgentTools(ctx, service, { enabled: service.agentToolsEnabled() });
-    expect(registered, '真 service 闸门=true（config 默认）应挂载 5 工具').toHaveLength(5);
+    expect(registered, '真 service 闸门=true（config 默认）应挂载 6 工具').toHaveLength(6);
     expect(listeners.has('agent/created')).toBe(true);
 
     await service.setConfig({ agentToolsEnabled: false });
     expect(service.agentToolsEnabled()).toBe(false);
-    expect(recycled, '翻 false 应回收全部已注册工具（stop 全调）').toBe(5);
+    expect(recycled, '翻 false 应回收全部已注册工具（stop 全调）').toBe(6);
     listeners.get('agent/created')?.({ agent });
-    expect(registered, '翻 false 后 agent/created 不再挂载').toHaveLength(5);
+    expect(registered, '翻 false 后 agent/created 不再挂载').toHaveLength(6);
 
     await service.setConfig({ agentToolsEnabled: true });
     expect(service.agentToolsEnabled()).toBe(true);
-    expect(registered, '翻 true 对 roots 重挂载 5 工具').toHaveLength(10);
+    expect(registered, '翻 true 对 roots 重挂载 6 工具').toHaveLength(12);
 
     for (const dispose of disposers) dispose();
   });
@@ -138,7 +138,7 @@ describe('AC-M1-12 单一真源（agentToolsEnabled：显式设置 > 插件 conf
     expect(registered).toHaveLength(0);
 
     await service.setConfig({ agentToolsEnabled: true });
-    expect(registered, '带订阅面的真 service 初值 false 仍装配骨架，翻 true 热恢复挂载').toHaveLength(5);
+    expect(registered, '带订阅面的真 service 初值 false 仍装配骨架，翻 true 热恢复挂载').toHaveLength(6);
     for (const dispose of disposers) dispose();
   });
 });

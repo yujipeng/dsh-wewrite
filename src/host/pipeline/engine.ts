@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { RunParams } from '../../shared/contract';
 import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type PipelineLlm } from './llm';
-import { isSourceUrlVisible } from './steps/gates';
+import { isSourceUrlVisible, type GateClaim } from './steps/gates';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 import type { ImagePromptPlan } from '../images/plan';
 
@@ -37,6 +37,7 @@ export interface GatesRunner {
     outlineSkeleton?: readonly string[];
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
+    claims?: readonly GateClaim[];
   }): Promise<{ passed: boolean; report: unknown }>;
 }
 
@@ -361,6 +362,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               ...(brief?.outline?.length ? { outlineSkeleton: brief.outline } : {}),
               ...(brief?.mustInclude?.length ? { mustInclude: brief.mustInclude } : {}),
               ...(brief?.mustAvoid?.length ? { mustAvoid: brief.mustAvoid } : {}),
+              ...(brief?.claims?.length ? { claims: brief.claims } : {}),
             });
 
           let verdict = await runGates();

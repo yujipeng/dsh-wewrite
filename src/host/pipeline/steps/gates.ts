@@ -124,7 +124,19 @@ export interface GatesReport {
   readonly outlineSkeleton: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-11：mustInclude / mustAvoid 机械门禁；未携带时 undefined。 */
   readonly contract: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
+  /** I-22：事实主张—来源门禁；未携带 claims 时 undefined。 */
+  readonly claims: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   readonly issues: readonly string[];
+}
+
+export interface GateClaim {
+  readonly id: string;
+  readonly text: string;
+  readonly type: 'fact' | 'opinion';
+  readonly doi?: string;
+  readonly sourceIds?: readonly string[];
+  readonly status?: 'supported' | 'bounded';
+  readonly boundary?: string;
 }
 
 export interface RunGatesInput {
@@ -140,6 +152,8 @@ export interface RunGatesInput {
   readonly mustInclude?: readonly string[];
   /** I-11：不得原样出现的内容。 */
   readonly mustAvoid?: readonly string[];
+  /** I-22：主张—来源结构；fact 类必须有 sourceIds。 */
+  readonly claims?: readonly GateClaim[];
 }
 
 // ── 来源门禁（v0.5 docs/v0.5-launch-brief.md §2「来源」硬绑）──────────────────
@@ -255,6 +269,27 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
       })()
     : undefined;
 
+  const claims = input.claims?.length
+    ? (() => {
+        const issues: string[] = [];
+        const providedSources = new Set((input.sources ?? []).map((source) => source.trim()));
+        for (const claim of input.claims ?? []) {
+          if (claim.type !== 'fact') continue;
+          const sourceIds = (claim.sourceIds ?? []).map((id) => id.trim()).filter(Boolean);
+          if (sourceIds.length === 0) {
+            issues.push(`事实主张缺少来源：${claim.text.slice(0, 60)}`);
+            continue;
+          }
+          if (providedSources.size > 0) {
+            for (const sourceId of sourceIds) {
+              if (!providedSources.has(sourceId)) issues.push(`事实主张引用了未提供的来源：${sourceId}`);
+            }
+          }
+        }
+        return { passed: issues.length === 0, issues };
+      })()
+    : undefined;
+
   const issues: string[] = [];
   if (bannedWords.length) issues.push(`禁用词命中 ${bannedWords.length} 组`);
   if (internalMarkers) issues.push(`内部标记残留 ${internalMarkers} 处`);
@@ -266,6 +301,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
   if (sources && !sources.passed) issues.push(...sources.issues);
   if (outlineSkeleton && !outlineSkeleton.passed) issues.push(...outlineSkeleton.issues);
   if (contract && !contract.passed) issues.push(...contract.issues);
+  if (claims && !claims.passed) issues.push(...claims.issues);
 
   const report: GatesReport = {
     strict: true,
@@ -280,6 +316,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
     sources,
     outlineSkeleton,
     contract,
+    claims,
     issues,
   };
   return { passed: issues.length === 0, report };
@@ -294,6 +331,7 @@ export const qualityGatesRunner: GatesRunner = {
     outlineSkeleton?: readonly string[];
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
+    claims?: readonly GateClaim[];
   }) {
     return runQualityGates({
       markdown: input.markdown,
@@ -301,6 +339,7 @@ export const qualityGatesRunner: GatesRunner = {
       ...(input.outlineSkeleton?.length ? { outlineSkeleton: input.outlineSkeleton } : {}),
       ...(input.mustInclude?.length ? { mustInclude: input.mustInclude } : {}),
       ...(input.mustAvoid?.length ? { mustAvoid: input.mustAvoid } : {}),
+      ...(input.claims?.length ? { claims: input.claims } : {}),
     });
   },
 };

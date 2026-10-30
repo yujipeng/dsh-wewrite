@@ -165,20 +165,20 @@ const execWith = (signal: AbortSignal) => ({ signal });
 // ── 注册面（AC-M1-01 / AC-M1-02 / AC-M1-12）──────────────────────────────────
 
 describe('注册面（AC-M1-01 工具可见 / AC-M1-02 降级 / AC-M1-12 开关）', () => {
-  it('AC-M1-01: 装配后向既有 agent 注册全部 5 个工具（含 Spec §5 增补的 wewrite_suggest_topics）', () => {
+  it('AC-M1-01: 装配后向既有 agent 注册全部 6 个工具（含 Spec §5 增补的 wewrite_suggest_topics）', () => {
     const { agent } = setup();
     const names = agent.registered.map((d) => (d as { name: string }).name).sort();
-    expect(names).toEqual(['wewrite_list_articles', 'wewrite_push_draft', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
+    expect(names).toEqual(['wewrite_list_articles', 'wewrite_push_draft', 'wewrite_research', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
   });
 
-  it('AC-M1-01: 后续新建 agent（agent/created）同样挂载全部 5 个工具', () => {
+  it('AC-M1-01: 后续新建 agent（agent/created）同样挂载全部 6 个工具', () => {
     const { harness } = setup();
     const created = harness.listeners.get('agent/created');
     expect(created, '应订阅 agent/created').toBeTypeOf('function');
     const lateAgent = makeAgent('agent_late');
     created?.({ agent: lateAgent.agent });
     const names = lateAgent.registered.map((d) => (d as { name: string }).name).sort();
-    expect(names).toEqual(['wewrite_list_articles', 'wewrite_push_draft', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
+    expect(names).toEqual(['wewrite_list_articles', 'wewrite_push_draft', 'wewrite_research', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
   });
 
   it('AC-M1-02/D1: ctx.agents 缺失 → 不抛错（warn 降级），无工具注册', () => {
@@ -193,7 +193,7 @@ describe('注册面（AC-M1-01 工具可见 / AC-M1-02 降级 / AC-M1-12 开关�
     const healthy = makeAgent('agent_ok');
     const harness = makeCtx({ agents: [boom, healthy] });
     expect(() => registerAgentTools(harness.ctx, makeFakeService() as unknown as WeWriteService, { enabled: true })).not.toThrow();
-    expect(healthy.registered.length).toBe(5);
+    expect(healthy.registered.length).toBe(6);
   });
 
   it('AC-M1-12: enabled=false → 零注册（用户总开关关闭语义）', () => {
@@ -206,7 +206,7 @@ describe('注册面（AC-M1-01 工具可见 / AC-M1-02 降级 / AC-M1-12 开关�
 
   it('AC-M1-12: 返回的 disposers 全量回收（工具 stop + 事件订阅 stop）', () => {
     const { agent, harness, disposers } = setup();
-    expect(agent.register).toHaveBeenCalledTimes(5);
+    expect(agent.register).toHaveBeenCalledTimes(6);
     expect(harness.on).toHaveBeenCalledWith('agent/created', expect.any(Function));
     expect(disposers.length).toBeGreaterThan(0);
     for (const dispose of disposers) dispose();
@@ -246,7 +246,7 @@ describe('AC-M1-12 动态闸门（翻转→回收/恢复，fake 走 service 闸�
     });
     const harness = makeCtx({ agents: [agent] });
     registerAgentTools(harness.ctx, gate.service, { enabled: true });
-    expect(stops).toHaveLength(5);
+    expect(stops).toHaveLength(6);
 
     gate.flip(false);
     for (const [index, stop] of stops.entries()) expect(stop, `工具 ${index} 的 stop 应被调用`).toHaveBeenCalled();
@@ -256,18 +256,18 @@ describe('AC-M1-12 动态闸门（翻转→回收/恢复，fake 走 service 闸�
     expect(lateAgent.register).toHaveBeenCalledTimes(0);
   });
 
-  it('闸门翻 true：对 roots 重新挂载（5 工具恢复）', () => {
+  it('闸门翻 true：对 roots 重新挂载（6 工具恢复）', () => {
     const gate = makeGateService(true);
     const agent = makeAgent('agent_1');
     const harness = makeCtx({ agents: [agent] });
     registerAgentTools(harness.ctx, gate.service, { enabled: true });
-    expect(agent.register).toHaveBeenCalledTimes(5);
+    expect(agent.register).toHaveBeenCalledTimes(6);
 
     gate.flip(false);
-    expect(agent.register).toHaveBeenCalledTimes(5);
+    expect(agent.register).toHaveBeenCalledTimes(6);
 
     gate.flip(true);
-    expect(agent.register).toHaveBeenCalledTimes(10);
+    expect(agent.register).toHaveBeenCalledTimes(12);
   });
 
   it('初值 false + 动态闸门面：不提前退出（disposers 非空），翻 true 后挂载恢复', () => {
@@ -279,7 +279,7 @@ describe('AC-M1-12 动态闸门（翻转→回收/恢复，fake 走 service 闸�
     expect(disposers.length).toBeGreaterThan(0);
 
     gate.flip(true);
-    expect(agent.register).toHaveBeenCalledTimes(5);
+    expect(agent.register).toHaveBeenCalledTimes(6);
     for (const dispose of disposers) dispose();
   });
 
@@ -287,14 +287,14 @@ describe('AC-M1-12 动态闸门（翻转→回收/恢复，fake 走 service 闸�
     const agent = makeAgent('agent_1');
     const harness = makeCtx({ agents: [agent] });
     const disposers = registerAgentTools(harness.ctx, makeFakeService() as unknown as WeWriteService, { enabled: true });
-    expect(agent.register).toHaveBeenCalledTimes(5);
+    expect(agent.register).toHaveBeenCalledTimes(6);
     for (const dispose of disposers) dispose();
   });
 });
 
-// ── 五工具定义形状钉死（Spec §5 表 + architecture §4.2）─────────────────────
+// ── 六工具定义形状钉死（Spec §5 表 + architecture §4.2）─────────────────────
 
-describe('工具定义形状（Spec §5 工具面 5 个 / AC-M1-01 描述边界）', () => {
+describe('工具定义形状（Spec §5 工具面 6 个 / AC-M1-01 描述边界）', () => {
   const { agent } = setup();
   const byName = (name: string) => agent.tool(name);
 
@@ -304,6 +304,7 @@ describe('工具定义形状（Spec §5 工具面 5 个 / AC-M1-01 描述边界�
     wewrite_push_draft: 120000,
     wewrite_list_articles: 15000,
     wewrite_suggest_topics: 60000,
+    wewrite_research: 60000,
   };
 
   it.each(Object.keys(TIMEOUTS))('%s: timeoutMs 按 Spec §5 表锁定', (name) => {
@@ -732,13 +733,13 @@ describe('推送审批 pre-execute（OD-1 / AC-M1-05 确认前零微信 API 调�
     expect(service.pushArticleDraft, '审批通道不可用时必须零微信 API 调用').toHaveBeenCalledTimes(0);
   });
 
-  it('D14①: ctx.on 抛错 → 审批未武装 → wewrite_push_draft 整个不注册（其余 4 工具照常）', () => {
+  it('D14①: ctx.on 抛错 → 审批未武装 → wewrite_push_draft 整个不注册（其余 5 工具照常）', () => {
     const agent = makeAgent();
     const harness = makeCtx({ agents: [agent], onThrow: true });
     expect(() => registerAgentTools(harness.ctx, makeFakeService() as unknown as WeWriteService, { enabled: true })).not.toThrow();
     const names = agent.registered.map((d) => (d as { name: string }).name);
     expect(names).not.toContain('wewrite_push_draft');
-    expect(names.sort()).toEqual(['wewrite_list_articles', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
+    expect(names.sort()).toEqual(['wewrite_list_articles', 'wewrite_research', 'wewrite_rewrite', 'wewrite_run', 'wewrite_suggest_topics']);
   });
 
   it('D14①: ctx.on 返回非函数（宿主 seam 降级）→ push 不注册', () => {
@@ -747,7 +748,7 @@ describe('推送审批 pre-execute（OD-1 / AC-M1-05 确认前零微信 API 调�
     registerAgentTools(harness.ctx, makeFakeService() as unknown as WeWriteService, { enabled: true });
     const names = agent.registered.map((d) => (d as { name: string }).name);
     expect(names).not.toContain('wewrite_push_draft');
-    expect(names).toHaveLength(4);
+    expect(names).toHaveLength(5);
   });
 });
 

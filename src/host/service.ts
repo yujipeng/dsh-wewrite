@@ -11,6 +11,7 @@ import { analyzeHotspot as runHotspotAnalyze } from './hotspot-analyze';
 import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunStore } from './pipeline/engine';
 import { aggregateHotspots, buildHotspotSources } from './pipeline/steps/topic';
 import { suggestTopics as runSuggestTopics } from './suggest-topics';
+import { researchTopic as runResearchTopic, type ResearchResult } from './research';
 import { qualityGatesRunner } from './pipeline/steps/gates';
 import { DEFAULT_REVIEW_THRESHOLD, reviewArticle } from './pipeline/steps/editorial-review';
 import { resolveLogger, unwrapCredential, type CredentialsService, type HostLogger, type LlmService, type StorageDomainHandle } from './platform';
@@ -59,6 +60,8 @@ const MAX_CONCURRENT_RUNS = 1;
 const REVIEW_TIMEOUT_MS = 45_000;
 /** I-18：配图提示词清单单次 LLM 调用上限（失败降级固定模板）。 */
 const IMAGE_PLAN_TIMEOUT_MS = 45_000;
+/** I-21：研究底稿单次 LLM 调用上限。 */
+const RESEARCH_TIMEOUT_MS = 45_000;
 
 export class WeWriteService {
   private readonly tables: DomainTables;
@@ -308,6 +311,25 @@ export class WeWriteService {
       }
     }
     return [...seen].slice(0, 8);
+  }
+
+  /** I-21：研究底稿（可选 agent 工具；不调用时管线不变）。 */
+  async researchTopic(input: { topic: string; sources?: readonly string[] }): Promise<ResearchResult> {
+    const { provider, model } = this.state.settings.llmDefault;
+    if (!provider || !model) {
+      throw new WewriteServiceError('llm-not-configured', '尚未配置默认模型：请先到「设置」里选择模型再生成研究底稿');
+    }
+    return runResearchTopic(
+      {
+        llm: this.deps.llm as unknown as PipelineLlm,
+        provider,
+        model,
+        timeoutMs: RESEARCH_TIMEOUT_MS,
+        logger: this.logger,
+        nowIso: () => this.nowIso(),
+      },
+      input,
+    );
   }
 
   async suggestTopics(input: { count?: number; refresh?: boolean } = {}): Promise<SuggestedTopicsView> {

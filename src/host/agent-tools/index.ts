@@ -13,6 +13,7 @@ import { buildPushTool, buildRewriteTool } from './edit-tools';
 import { buildListTool } from './list-tool';
 import { buildRunTool } from './run-tool';
 import { buildSuggestTopicsTool } from './suggest-topics';
+import { buildResearchTool } from './research';
 import { jsonSchema } from './output-helpers';
 
 export interface ToolRegistrationOptions {
@@ -73,6 +74,7 @@ export function registerAgentTools(ctx: HostContext, service: WeWriteService, op
     buildRewriteTool(service),
     buildListTool(service),
     buildSuggestTopicsTool(service),
+    buildResearchTool(service),
   ].map(withWireParameters);
   if (pushApproval) definitions.push(withWireParameters(buildPushTool(service, pushApproval)));
 

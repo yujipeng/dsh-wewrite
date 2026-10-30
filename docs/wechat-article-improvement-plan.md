@@ -1,6 +1,6 @@
 # 借鉴 wechat-article 全流程的改进计划
 
-> 状态：**Phase 1/2/3/4 已完成并验证**（2026-10-30：Phase 0 图像 spike、I-01~I-20 已完成；真机推送 `pushVerify.ok=true`；Phase 4 排版容器/图注/三稿/配图清单/验图/成本上限已落地）
+> 状态：**Phase 1/2/3/4/5 已完成并验证**（2026-10-30：Phase 0 图像 spike、I-01~I-23 全部落地；真机推送 `pushVerify.ok=true`；Phase 5 研究底稿/claims 门禁/Crossref 可选核对已完成）
 > 日期：2026-10-29（2026-10-30 更新实施状态）
 > 对照基线：`~/Documents/wechat-article/`（2026-10-22 ~ 10-29，7 篇已推草稿）与 `~/Documents/wechat-article/.wewrite/`
 > 本文只描述「补什么、放在哪、怎么验收」，不含代码改动。
@@ -246,21 +246,21 @@
 
 ### 3.5 P2 — 事实核查（可选）
 
-#### I-21 research 底稿
+#### I-21 research 底稿 ✅ 已完成（2026-10-30）
 
 - **问题**：外部流程有 `research/facts.md`（已核实 / 未核实不采用 / 表述边界 / 引语规则）与 `mechanisms.md`（文献→核对→机制→用法→不能写成→边界），项目完全没有研究阶段。
 - **做法**：**不新增管线步骤**（六步序列锁定）。做成可选 agent 工具 `wewrite_research`：输入主题与候选来源，输出两份底稿并把结论写入 `RunParams.brief.mustInclude / boundary`。用户不调用时管线行为不变。
 - **落点**：`src/host/agent-tools/`（新工具）、`src/shared/contract.ts`。
 - **验收**：工具契约测试；不调用时管线快照与现状一致。
 
-#### I-22 claims / sources 结构
+#### I-22 claims / sources 结构 ✅ 已完成（2026-10-30）
 
 - **问题**：现在只有 `sources: string[]`，无法表达「这条主张有多少把握、不能写成什么」。
 - **做法**：`brief` 增加可选 `claims: { id, text, type: fact|opinion, sourceIds, status: supported|bounded, boundary }[]`；`sources` 从字符串数组升级为可选结构（保留旧字符串形态兼容）。门禁增加：`mustInclude` 中每条 fact 类主张必须至少关联一个 source。
 - **落点**：`src/shared/contract.ts`、`src/host/pipeline/steps/gates.ts`、`src/host/pipeline/llm.ts`。
 - **验收**：两种 sources 形态都能解析；claim-source 一致性单测；旧 brief 不触发新门禁。
 
-#### I-23 Crossref 核对（默认关闭）
+#### I-23 Crossref 核对（默认关闭） ✅ 已完成（2026-10-30）
 
 - **问题**：外部流程用 Crossref API 逐条核对 DOI、卷期页，曾据此纠正过错误 DOI。
 - **做法**：可选开关。开启后对 claims 中带 DOI 的条目请求 `api.crossref.org`，比对题名与卷期页；失败/超时标记「未核对」，**不阻断成稿**，只在评审 notes 中列出。

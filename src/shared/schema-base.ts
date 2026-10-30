@@ -70,6 +70,22 @@ export const LlmOverrideSchema = z.strictObject({
 export type LlmOverride = z.infer<typeof LlmOverrideSchema>;
 
 /**
+ * I-22：写作合同里的主张—来源—边界结构。
+ * fact 类主张必须带 sourceIds（指向 brief.sources 里的 URL）；opinion 可无来源。
+ */
+export const ClaimSchema = z.strictObject({
+  id: z.string().trim().min(1).max(40),
+  text: z.string().trim().min(1).max(500),
+  type: z.enum(['fact', 'opinion']),
+  /** I-23：可选 DOI；开启 Crossref 时用于核对题名/卷期页，不阻断成稿。 */
+  doi: z.string().trim().max(200).optional(),
+  sourceIds: z.array(z.string().trim().min(1).max(500)).max(10).optional(),
+  status: z.enum(['supported', 'bounded']).optional(),
+  boundary: z.string().trim().max(300).optional(),
+});
+export type Claim = z.infer<typeof ClaimSchema>;
+
+/**
  * 启动 brief（v0.5 变密度输入合同，docs/v0.5-launch-brief.md §2）：
  * 主题之外全部可选——一句话路径零损伤；给了即按分层绑定生效（标题/思路硬绑、大纲骨架绑、来源硬绑+门禁）。
  */
@@ -100,6 +116,8 @@ export const LaunchBriefSchema = z.strictObject({
   mustInclude: z.array(z.string().trim().min(1).max(200)).min(1).max(10).optional(),
   /** I-10/I-11：不得出现的内容（机械门禁）。 */
   mustAvoid: z.array(z.string().trim().min(1).max(200)).min(1).max(10).optional(),
+  /** I-22：主张—来源—边界结构；fact 类主张必须带 sourceIds。 */
+  claims: z.array(ClaimSchema).min(1).max(20).optional(),
 });
 export type LaunchBrief = z.infer<typeof LaunchBriefSchema>;
 

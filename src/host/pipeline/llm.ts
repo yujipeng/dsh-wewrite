@@ -141,6 +141,16 @@ export interface LaunchBriefForPrompt {
   readonly audience?: { readonly who?: string; readonly context?: string; readonly question?: string };
   readonly mustInclude?: readonly string[];
   readonly mustAvoid?: readonly string[];
+  /** I-22：主张—来源—边界；fact 类必须带 sourceIds。 */
+  readonly claims?: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly type: 'fact' | 'opinion';
+    readonly doi?: string;
+    readonly sourceIds?: readonly string[];
+    readonly status?: 'supported' | 'bounded';
+    readonly boundary?: string;
+  }[];
 }
 
 export function outlineUserPrompt(
@@ -220,6 +230,17 @@ export function draftUserPrompt(
   }
   if (brief?.mustAvoid?.length) {
     lines.push('', '不得出现的内容（正文禁止出现）：', ...brief.mustAvoid.map((item) => `- ${item}`));
+  }
+  if (brief?.claims?.length) {
+    lines.push(
+      '',
+      '事实主张（fact 类必须带来源 URL；opinion 可无来源）：',
+      ...brief.claims.map((claim) => {
+        const sources = claim.sourceIds?.length ? `（来源：${claim.sourceIds.join('、')}）` : '';
+        const boundary = claim.boundary ? `（边界：${claim.boundary}）` : '';
+        return `- [${claim.type}] ${claim.text}${sources}${boundary}`;
+      }),
+    );
   }
   if (brief?.sources?.length) {
     lines.push(
