@@ -19,6 +19,8 @@ interface RpcPayload {
   readonly action?: string;
   readonly topicCount?: number;
   readonly limit?: number;
+  readonly count?: number;
+  readonly refresh?: boolean;
   readonly rank?: number;
   readonly url?: string;
   readonly ref?: string;
@@ -48,6 +50,14 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
         title: String(payload.title),
         url: String(payload.url),
       });
+    case 'hotspots/analyze':
+      return service.analyzeHotspot({
+        rank: Number(payload.rank),
+        title: String(payload.title),
+        url: String(payload.url),
+      });
+    case 'hotspots/suggest':
+      return service.suggestTopics({ count: payload.count, refresh: payload.refresh });
     case 'article/list':
       return service.listArticles();
     case 'article/get':
@@ -81,6 +91,8 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
       });
     case 'run/cancel':
       return service.cancelRun(String(payload.runId));
+    case 'run/retry':
+      return service.retryRun(String(payload.runId));
     case 'run/detail':
       // runId/callId 二选一（M2 运行卡 callId 兜底链）；request schema 已保证其一非空
       return service.runDetail(payload.runId ? { runId: String(payload.runId) } : { callId: String(payload.callId) });

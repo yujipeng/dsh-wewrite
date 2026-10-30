@@ -193,3 +193,13 @@ export function domainOf(url: string): string {
     return url;
   }
 }
+
+/** 是否为可安全外链的 http(s) URL（热榜聚合源可能给空串或相对串）。 */
+export function isHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}

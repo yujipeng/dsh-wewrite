@@ -479,3 +479,115 @@ describe('await done 句柄（chat-integration M1：service.runCompletion 的 en
     expect(doneId).toBe(runId);
   });
 });
+
+describe('串行队列（任务中心：FIFO + 并发上限 + 排队取消）', () => {
+  /** images 步可控闸门：每个 run 走到 images 时挂起，便于观察队列推进。 */
+  function makeQueueDeps(overrides: { maxConcurrentRuns?: number } = {}) {
+    const gates: Array<() => void> = [];
+    const imagesGenerate = vi.fn(async () => {
+      await new Promise<void>((resolve) => gates.push(resolve));
+      return { coverImageId: 'img_0', bodyImageIds: [] };
+    });
+    const deps = {
+      ...makeDeps({ images: { generate: imagesGenerate } }),
+      ...(overrides.maxConcurrentRuns ? { maxConcurrentRuns: overrides.maxConcurrentRuns } : {}),
+    };
+    return { deps, imagesGenerate, releaseOne: () => gates.shift()?.() };
+  }
+
+  async function waitForImagesCalls(imagesGenerate: { mock: { calls: unknown[][] } }, count: number) {
+    await vi.waitFor(() => expect(imagesGenerate.mock.calls.length).toBeGreaterThanOrEqual(count));
+  }
+
+  it('并发上限 1：第二个 run 保持 queued，第一个完成后按入队顺序启动', async () => {
+    const { deps, imagesGenerate, releaseOne } = makeQueueDeps();
+    const engine = makeEngine(deps);
+    const first = engine.begin({ trigger: 'manual', params: baseParams });
+    const second = engine.begin({ trigger: 'manual', params: baseParams });
+
+    expect(deps.store.get(first.runId)?.status).toBe('running');
+    expect(deps.store.get(second.runId)?.status).toBe('queued');
+
+    await waitForImagesCalls(imagesGenerate, 1);
+    releaseOne();
+    await expect(first.done).resolves.toBe(first.runId);
+    expect(deps.store.get(first.runId)?.status).toBe('succeeded');
+
+    await waitForImagesCalls(imagesGenerate, 2);
+    expect(deps.store.get(second.runId)?.status).toBe('running');
+    releaseOne();
+    await expect(second.done).resolves.toBe(second.runId);
+    expect(deps.store.get(second.runId)?.status).toBe('succeeded');
+  });
+
+  it('并发上限 2：前两个同时 running，第三个排队', async () => {
+    const { deps, imagesGenerate, releaseOne } = makeQueueDeps({ maxConcurrentRuns: 2 });
+    const engine = makeEngine(deps);
+    const first = engine.begin({ trigger: 'manual', params: baseParams });
+    const second = engine.begin({ trigger: 'manual', params: baseParams });
+    const third = engine.begin({ trigger: 'manual', params: baseParams });
+
+    expect(deps.store.get(first.runId)?.status).toBe('running');
+    expect(deps.store.get(second.runId)?.status).toBe('running');
+    expect(deps.store.get(third.runId)?.status).toBe('queued');
+
+    await waitForImagesCalls(imagesGenerate, 2);
+    releaseOne();
+    releaseOne();
+    await Promise.all([first.done, second.done]);
+    await waitForImagesCalls(imagesGenerate, 3);
+    releaseOne();
+    await expect(third.done).resolves.toBe(third.runId);
+    expect(deps.store.get(third.runId)?.status).toBe('succeeded');
+  });
+
+  it('排队中取消：立即出队落 cancelled，不消耗执行额度，done 与 awaitDone 都 settle', async () => {
+    const { deps, imagesGenerate, releaseOne } = makeQueueDeps();
+    const engine = makeEngine(deps);
+    const first = engine.begin({ trigger: 'manual', params: baseParams });
+    const second = engine.begin({ trigger: 'manual', params: baseParams });
+    const awaited = engine.awaitDone(second.runId);
+
+    expect(engine.cancel(second.runId)).toBe(true);
+    const cancelled = deps.store.get(second.runId);
+    expect(cancelled?.status).toBe('cancelled');
+    expect(cancelled?.finishedAt).toBeDefined();
+    await expect(second.done).resolves.toBe(second.runId);
+    await expect(awaited).resolves.toMatchObject({ id: second.runId, status: 'cancelled' });
+    expect(engine.cancel(second.runId)).toBe(false);
+
+    await waitForImagesCalls(imagesGenerate, 1);
+    releaseOne();
+    await first.done;
+    // 第二个从未启动：images 只被第一个调用
+    expect(imagesGenerate.mock.calls).toHaveLength(1);
+    expect(deps.store.get(second.runId)?.status).toBe('cancelled');
+  });
+
+  it('排队中 awaitDone 不提前 resolve；轮到它并完成后返回 succeeded 记录', async () => {
+    const { deps, imagesGenerate, releaseOne } = makeQueueDeps();
+    const engine = makeEngine(deps);
+    const first = engine.begin({ trigger: 'manual', params: baseParams });
+    const second = engine.begin({ trigger: 'manual', params: baseParams });
+
+    let settled = false;
+    const awaited = engine.awaitDone(second.runId).then((record) => {
+      settled = true;
+      return record;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled, '队列等待期间 awaitDone 不得 resolve').toBe(false);
+    expect(deps.store.get(second.runId)?.status).toBe('queued');
+
+    await waitForImagesCalls(imagesGenerate, 1);
+    releaseOne();
+    await first.done;
+    await waitForImagesCalls(imagesGenerate, 2);
+    releaseOne();
+
+    const record = await awaited;
+    expect(record?.id).toBe(second.runId);
+    expect(record?.status).toBe('succeeded');
+    await second.done;
+  });
+});

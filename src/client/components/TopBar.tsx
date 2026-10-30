@@ -1,6 +1,7 @@
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { Translate } from '../lib/context';
 import type { Route } from '../lib/router';
+import { useStore } from '../store';
 import { Icon } from './Icon';
 import type { IconName } from './Icon';
 
@@ -13,10 +14,16 @@ import type { IconName } from './Icon';
  * 激活段按域分色（写作=accent 蓝 / 选题=橙 / 定时=青，topbar.css）。
  */
 
-const TABS: ReadonlyArray<{ key: 'home' | 'hotspots' | 'schedule'; labelKey: 'topbar.write' | 'topbar.hotspots' | 'topbar.schedule'; icon: IconName; view: 'writing' | 'topics' | 'schedule' }> = [
+const TABS: ReadonlyArray<{
+  key: 'home' | 'hotspots' | 'schedule' | 'tasks';
+  labelKey: 'topbar.write' | 'topbar.hotspots' | 'topbar.schedule' | 'topbar.tasks';
+  icon: IconName;
+  view: 'writing' | 'topics' | 'schedule' | 'tasks';
+}> = [
   { key: 'home', labelKey: 'topbar.write', icon: 'pen-line', view: 'writing' },
   { key: 'hotspots', labelKey: 'topbar.hotspots', icon: 'flame', view: 'topics' },
   { key: 'schedule', labelKey: 'topbar.schedule', icon: 'calendar-clock', view: 'schedule' },
+  { key: 'tasks', labelKey: 'topbar.tasks', icon: 'list-todo', view: 'tasks' },
 ];
 
 export interface WechatConnection {
@@ -43,6 +50,11 @@ export function TopBar({
 }) {
   // article 是工作区聚焦态（写作 Tab 激活）；articles 已在 navigate 处重写，此处兜底归 home。
   const activeKind = route.kind === 'home' || route.kind === 'article' || route.kind === 'articles' ? 'home' : route.kind;
+  const store = useStore();
+  const runs = store.snapshot.status === 'ready' ? store.snapshot.data.runs : [];
+  const runningCount = runs.filter((run) => run.status === 'running').length;
+  const queuedCount = runs.filter((run) => run.status === 'queued').length;
+  const activeTaskCount = runningCount + queuedCount;
 
   return (
     <header className="ww-topbar" data-testid="ww-topbar">
@@ -61,6 +73,15 @@ export function TopBar({
             >
               <Icon name={tab.icon} size={16} />
               {t(tab.labelKey)}
+              {tab.key === 'tasks' && activeTaskCount > 0 ? (
+                <span
+                  className="ww-tab__badge"
+                  title={`运行中 ${runningCount} · 排队中 ${queuedCount}`}
+                  aria-label={`运行中 ${runningCount}，排队中 ${queuedCount}`}
+                >
+                  {activeTaskCount}
+                </span>
+              ) : null}
             </button>
           );
         })}

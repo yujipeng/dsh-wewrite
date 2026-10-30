@@ -65,10 +65,12 @@ export type ArticleDetail = z.infer<typeof ArticleDetailSchema>;
 
 export const RunSummarySchema = z.strictObject({
   id: z.string(),
-  trigger: z.enum(['manual', 'schedule']),
+  trigger: z.enum(['manual', 'schedule', 'chat']),
   scheduleId: z.string().optional(),
   articleId: z.string().optional(),
   status: z.enum(RUN_STATUSES),
+  /** 固定选题模式的主题（热榜模式为空串）；任务列表避免逐条 run/detail。 */
+  topic: z.string(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),
   error: z.strictObject({ code: z.string(), message: z.string() }).optional(),
@@ -91,7 +93,7 @@ export type StepView = z.infer<typeof StepViewSchema>;
 /** run/detail 响应（chat-integration M2 运行卡消费面）：RunSummary + steps + topic（全量手写保 strict）。 */
 export const RunDetailSchema = z.strictObject({
   id: z.string(),
-  trigger: z.enum(['manual', 'schedule']),
+  trigger: z.enum(['manual', 'schedule', 'chat']),
   scheduleId: z.string().optional(),
   articleId: z.string().optional(),
   status: z.enum(RUN_STATUSES),
@@ -132,6 +134,36 @@ export const TopicCandidateViewSchema = z.strictObject({
   createdAt: z.string(),
 });
 export type TopicCandidateView = z.infer<typeof TopicCandidateViewSchema>;
+
+/** 建议选题（选题中心右栏）：从热榜中按写作要求筛出的可写选题，1:1 映射热点条目。 */export const SuggestedTopicViewSchema = z.strictObject({
+  title: z.string().min(1).max(120),
+  angle: z.string().min(1).max(240),
+  source: z.string(),
+  sourceRank: z.number().int().min(1),
+  sourceTitle: z.string(),
+  sourceUrl: z.string(),
+});
+export type SuggestedTopicView = z.infer<typeof SuggestedTopicViewSchema>;
+
+/** 热点结构化分析（确认弹层）：一次 LLM 调用产出「简介 + 可写角度」两个独立字段。 */
+export const HotspotAnalysisSchema = z.strictObject({
+  summary: z.string().min(1).max(4000),
+  angle: z.string().max(1000),
+  source: z.enum(['article', 'title']),
+  model: z.string(),
+  generatedAtIso: z.iso.datetime(),
+});
+export type HotspotAnalysis = z.infer<typeof HotspotAnalysisSchema>;
+
+/** hotspots/suggest 响应：profileUsed=false 表示未配置写作要求、按通用标准筛选。 */
+export const SuggestedTopicsViewSchema = z.strictObject({
+  topics: z.array(SuggestedTopicViewSchema),
+  generatedAtIso: z.iso.datetime(),
+  model: z.string(),
+  profileUsed: z.boolean(),
+  totalHotspots: z.number().int().min(0),
+});
+export type SuggestedTopicsView = z.infer<typeof SuggestedTopicsViewSchema>;
 
 export const CredentialsDescriptorSchema = z.strictObject({
   configured: z.boolean(),

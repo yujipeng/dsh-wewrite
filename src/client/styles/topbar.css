@@ -201,3 +201,17 @@
 .ww-tab--active[data-view='schedule'] svg { color: var(--ww-view-schedule); }
 .ww-tab--active[data-view='schedule']:hover { color: var(--ww-view-schedule); }
 .ww-tab--active[data-view='schedule']:hover svg { color: var(--ww-view-schedule); }
+
+/* 任务中心：活跃任务计数徽标（默认 accent 域，不新增识别色） */
+.ww-tab__badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--ww-radius-full);
+  background: var(--ww-accent-subtle);
+  color: var(--ww-accent);
+  font-size: var(--ww-text-xs);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

@@ -69,13 +69,16 @@
 |---|---|---|---|
 | `snapshot` | `{}` | `Snapshot{articles[],runs[],schedules[],config,serverNow,capabilities}` | 首拉全量+版本协商 |
 | `hotspots/fetch` | `{limit?}` | `HotspotItem[]` | HN API+聚合源，单源失败隔离 |
+| `hotspots/suggest` | `{count?,refresh?}` | `SuggestedTopicsView{topics[],generatedAtIso,model,profileUsed,totalHotspots}` | 按写作要求从热榜筛最多 10 条建议选题；host 缓存 30 分钟，refresh 强制重算 |
+| `hotspots/analyze` | `{rank,title,url}` | `HotspotAnalysis{summary,angle,source,model,generatedAtIso}` | 选题确认弹层：一次 LLM 返回简介 + 可写角度；前端按 URL 当日缓存 |
 | `article/list` | `{}` | `ArticleListItem[]` | 轻量视图 |
 | `article/get` | `{id}` | `ArticleDetail` | 含 markdown |
 | `article/save` | `{id?,slug,title,digest,markdown,theme}` | `ArticleDetail` | 创建/更新 |
 | `article/delete` | `{id}` | `{deleted}` | |
 | `article/preview` | `{id}\|{markdown,theme}` | `{html}` | host 侧渲染，预览=产物 |
 | `run/start` | `{articleId?,params:RunParams}` | `{runId}` | 手动跑管线 |
-| `run/cancel` | `{runId}` | `{ok}` | AbortSignal 贯穿 |
+| `run/cancel` | `{runId}` | `{ok}` | AbortSignal 贯穿；queued 直接出队 |
+| `run/retry` | `{runId}` | `{runId}` | 任务中心重试：复用原 paramsSnapshot 重新入队 |
 | `schedule/save` | `{id?,name,rrule,timeZone,params,enabled}` | `ScheduleViewModel` | revision++ |
 | `schedule/delete` / `schedule/toggle` / `schedule/runNow` | `{id}` / `{id,enabled}` / `{id}` | 视图 | |
 | `config/get` | `{}` | `ConfigView`（全脱敏） | credentials describe() 描述符 |
@@ -92,7 +95,7 @@
 |---|---|---|
 | global: SettingsRecord | wechatAppId/wechatApiBaseUrl/wechatAuthor/defaultTheme/llmDefault/imageProviders[]/agentToolsEnabled/runHistoryLimit | 机密一律走 credentials 不入此记录 |
 | articles | id/slug/title/digest/status(editing\|rendered\|pushed\|failed)/markdown/theme/coverImageId/bodyImageIds/wechatMediaId?/lastRunId | digest 必填（draft/add 需要） |
-| runs | id/trigger(manual\|schedule)/paramsSnapshot/status(queued\|running\|succeeded\|failed\|cancelled\|interrupted)/steps[]/error? | paramsSnapshot=触发时意图；runHistoryLimit 修剪 |
+| runs | id/trigger(manual\|schedule\|chat)/paramsSnapshot/status(queued\|running\|succeeded\|failed\|cancelled\|interrupted)/steps[]/error? | paramsSnapshot=触发时意图；runHistoryLimit 修剪；引擎串行 FIFO（默认并发 1） |
 | schedules | id/revision/rrrule/timeZone/params/publishTarget('draft' 恒)/nextRunAt/lastRunAt | rrule 归一化校验后存储；nextRunAt 是投影 |
 | images | id/articleId/kind(cover\|body)/mime/base64/provider/model/prompt/wechatUrl? | 单张 ≤10MB；base64 入库（ADR-005） |
 
@@ -101,10 +104,11 @@
 | 页面 | 面板内路由 | 核心组件 | 对应 RPC | Token 主题 |
 |---|---|---|---|---|
 | 写作台 | `/` | 今日待办/最近文章卡/主题输入条 | snapshot, run/start | ww-light |
-| 选题中心 | `/hotspots` | 热榜列表/关键词订阅右栏 | hotspots/fetch, run/start | ww-light |
+| 选题中心 | `/hotspots` | 热榜列表/关键词订阅左列/建议选题右列/确认弹层 | hotspots/fetch, hotspots/analyze, hotspots/suggest, run/start | ww-light |
 | 文章库 | `/articles` | 表格列表/状态点/门禁分列 | article/list | ww-light |
 | 编辑器（下钻） | `/articles/:id` | CodeMirror 6 左栏+375px 预览画布右栏+状态栏 | article/get,save,preview, wechat/pushDraft | ww-light |
 | 定时任务 | `/schedule` | 排队队列/执行历史 | schedule/*, snapshot | ww-light |
+| 任务中心 | `/tasks` | 运行中/排队中/最近完成；取消/重试/详情 | snapshot, run/cancel, run/retry, run/detail | ww-light |
 | 设置 | `/settings` | 左栏 5 组竖导航（公众号/模型/图片/代理/发布纪律） | config/*, credentials/*, llm/options, wechat/diagnose | ww-light |
 
 挂载：conversation.view tab（F9 官方证实路径）注册 WeWrite 工作台；rc.6 无全局槽位（F12 UNKNOWN，已按 tab 形态锁定）。宿主 settings.plugin.item 挂「入口卡」。浅/深主题跟随宿主 `--dsw-*`（不自带主题开关）。

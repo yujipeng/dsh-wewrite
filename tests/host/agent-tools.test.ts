@@ -383,7 +383,7 @@ describe('wewrite_run execute（AC-M1-03 启动/校验 + architecture §4.2 awai
 
     expect(service.startRun).toHaveBeenCalledTimes(1);
     expect(service.startRun).toHaveBeenCalledWith({
-      trigger: 'manual',
+      trigger: 'chat',
       params: { topicMode: 'fixed', topic: 'Cloudflare Workers 冷启动实测', imageCount: 2, theme: 'professional-clean' },
     });
     expect(RunToolValueSchema.safeParse(value).success).toBe(true);
@@ -394,7 +394,7 @@ describe('wewrite_run execute（AC-M1-03 启动/校验 + architecture §4.2 awai
   it('AC-M1-03: image_count 缺省 → 以 0 图推进（默认零图片成本）', async () => {
     const { service, agent } = setup();
     await (agent.tool('wewrite_run').execute as (args: unknown, exec: unknown) => Promise<unknown>)({ topic: '默认零图' }, execWith(new AbortController().signal));
-    expect(service.startRun).toHaveBeenCalledWith({ trigger: 'manual', params: { topicMode: 'fixed', topic: '默认零图', imageCount: 0 } });
+    expect(service.startRun).toHaveBeenCalledWith({ trigger: 'chat', params: { topicMode: 'fixed', topic: '默认零图', imageCount: 0 } });
   });
 
   it.each([
@@ -756,7 +756,7 @@ describe('wewrite_run 启动 brief（v0.5 变密度输入）', () => {
       execWith(new AbortController().signal),
     );
     expect(service.startRun).toHaveBeenCalledWith({
-      trigger: 'manual',
+      trigger: 'chat',
       params: {
         topicMode: 'fixed',
         topic: 'Workers 冷启动',
@@ -777,7 +777,7 @@ describe('wewrite_run 启动 brief（v0.5 变密度输入）', () => {
       { topic: '只给一句话' },
       execWith(new AbortController().signal),
     );
-    expect(service.startRun).toHaveBeenCalledWith({ trigger: 'manual', params: { topicMode: 'fixed', topic: '只给一句话', imageCount: 0 } });
+    expect(service.startRun).toHaveBeenCalledWith({ trigger: 'chat', params: { topicMode: 'fixed', topic: '只给一句话', imageCount: 0 } });
   });
 
   it.each([

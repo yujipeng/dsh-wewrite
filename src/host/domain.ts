@@ -73,7 +73,7 @@ export type StepRecord = z.infer<typeof StepRecordSchema>;
 export const RunRecordSchema = z.strictObject({
   v: z.number().int().min(1),
   id: z.string().min(1),
-  trigger: z.enum(['manual', 'schedule']),
+  trigger: z.enum(['manual', 'schedule', 'chat']),
   scheduleId: z.string().optional(),
   articleId: z.string().optional(),
   paramsSnapshot: RunParamsSchema,

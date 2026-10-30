@@ -24,9 +24,11 @@ import {
   HotspotDigestItemSchema,
   HotspotItemDigestSchema,
   HotspotItemSchema,
+  HotspotAnalysisSchema,
   RunDetailSchema,
   ScheduleViewModelSchema,
   SnapshotResponseSchema,
+  SuggestedTopicsViewSchema,
 } from './view-schemas';
 
 export * from './schema-base';
@@ -42,6 +44,8 @@ export const RPC_ENDPOINTS = [
   'snapshot',
   'hotspots/fetch',
   'hotspots/digestItem',
+  'hotspots/analyze',
+  'hotspots/suggest',
   'article/list',
   'article/get',
   'article/save',
@@ -50,6 +54,7 @@ export const RPC_ENDPOINTS = [
   'article/rewrite',
   'run/start',
   'run/cancel',
+  'run/retry',
   'run/detail',
   'schedule/save',
   'schedule/delete',
@@ -106,6 +111,19 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
     request: HotspotDigestItemSchema,
     response: HotspotItemDigestSchema,
   },
+  // 热点分析（确认弹层）：一次 LLM 返回简介 + 可写角度，供用户在启动前判断。
+  'hotspots/analyze': {
+    request: HotspotDigestItemSchema,
+    response: HotspotAnalysisSchema,
+  },
+  // 建议选题：按公众号写作要求从热榜中筛出可写选题（host 缓存 30 分钟；refresh 强制重算）。
+  'hotspots/suggest': {
+    request: z.strictObject({
+      count: z.number().int().min(1).max(10).optional(),
+      refresh: z.boolean().optional(),
+    }),
+    response: SuggestedTopicsViewSchema,
+  },
   'article/list': { request: EmptyRequest, response: z.array(ArticleListItemSchema) },
   'article/get': {
     request: z.strictObject({ id: z.string().min(1) }),
@@ -148,6 +166,11 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
   'run/cancel': {
     request: z.strictObject({ runId: z.string().min(1) }),
     response: z.strictObject({ ok: z.boolean() }),
+  },
+  // 任务中心：按原 run 的 paramsSnapshot 重新入队；仅终态可重试（service 层拒绝 queued/running）。
+  'run/retry': {
+    request: z.strictObject({ runId: z.string().min(1) }),
+    response: z.strictObject({ runId: z.string().min(1) }),
   },
   // chat-integration 增补（AC-M2-01 运行卡消费面）：纯新增端点，22 端点原样（§7 保证 1）。
   // runId/callId 二选一（M2 运行卡 runId 断链修复：presentCall 先于 execute 拿不到 runId，

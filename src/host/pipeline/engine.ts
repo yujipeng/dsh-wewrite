@@ -63,10 +63,12 @@ export interface PipelineDeps {
     readonly coverImageId?: string;
     readonly bodyImageIds: readonly string[];
   }) => Promise<void>;
+  /** 同时执行的 run 上限（FIFO 排队，默认 1 = 串行）。 */
+  readonly maxConcurrentRuns?: number;
 }
 
 export interface StartOptions {
-  readonly trigger: 'manual' | 'schedule';
+  readonly trigger: 'manual' | 'schedule' | 'chat';
   readonly params: RunParams;
   readonly scheduleId?: string;
   readonly articleId?: string;
@@ -108,11 +110,72 @@ export function pruneTerminalRuns(runs: readonly RunRecord[], limit: number): Ru
 
 export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
   const nowIso = () => (deps.now ? deps.now().toISOString() : new Date().toISOString());
+  const maxConcurrentRuns = Math.max(1, Math.floor(deps.maxConcurrentRuns ?? 1));
   const controllers = new Map<string, AbortController>();
   const completionWaiters = new Map<string, Set<(record: RunRecord | undefined) => void>>();
+  /** begin() 返回的 done 句柄：run 到终态（含排队期被取消）时 resolve。 */
+  const doneResolvers = new Map<string, (runId: string) => void>();
+  const pendingQueue: Array<{ runId: string; opts: StartOptions }> = [];
+  const activeRuns = new Set<string>();
   const ABORT_SENTINEL = Symbol('wewrite-abort');
   function throwAborted(): never {
     throw ABORT_SENTINEL;
+  }
+
+  /** 终态收口：resolve awaitDone 与 begin().done 的全部等待者。 */
+  function settle(runId: string): void {
+    const record = deps.store.get(runId);
+    const waiters = completionWaiters.get(runId);
+    completionWaiters.delete(runId);
+    if (waiters) for (const resolve of waiters) resolve(record);
+    const done = doneResolvers.get(runId);
+    doneResolvers.delete(runId);
+    if (done) done(runId);
+  }
+
+  function dequeue(runId: string): boolean {
+    const index = pendingQueue.findIndex((entry) => entry.runId === runId);
+    if (index < 0) return false;
+    pendingQueue.splice(index, 1);
+    return true;
+  }
+
+  function markQueuedCancelled(runId: string): void {
+    deps.store.update(runId, (run) => ({ ...run, status: 'cancelled', finishedAt: nowIso() }));
+  }
+
+  /** FIFO 调度：空槽位按入队顺序启动；排队期被 abort 的 run 直接标 cancelled。 */
+  function pump(): void {
+    while (activeRuns.size < maxConcurrentRuns && pendingQueue.length > 0) {
+      const entry = pendingQueue.shift();
+      if (!entry) return;
+      const run = deps.store.get(entry.runId);
+      if (!run || run.status !== 'queued') continue;
+      const controller = controllers.get(entry.runId);
+      if (!controller || controller.signal.aborted) {
+        markQueuedCancelled(entry.runId);
+        controllers.delete(entry.runId);
+        settle(entry.runId);
+        continue;
+      }
+      activeRuns.add(entry.runId);
+      void execute(entry.runId, entry.opts, controller.signal)
+        .catch((thrown) => {
+          // execute 内部已收口步骤错误；此处兜底非预期异常，避免 run 永久停在 running。
+          deps.store.update(entry.runId, (current) => ({
+            ...current,
+            status: 'failed',
+            error: { code: 'engine-error', message: thrown instanceof Error ? thrown.message : String(thrown) },
+            finishedAt: nowIso(),
+          }));
+        })
+        .finally(() => {
+          activeRuns.delete(entry.runId);
+          controllers.delete(entry.runId);
+          settle(entry.runId);
+          pump();
+        });
+    }
   }
 
   function patchStep(runId: string, name: PipelineStepName, patch: Partial<StepRecord>): void {
@@ -326,7 +389,6 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     }
 
     finishRun(runStatus, runError);
-    controllers.delete(runId);
   }
 
   const begin = (opts: StartOptions): { runId: string; done: Promise<string> } => {
@@ -349,13 +411,12 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
       startedAt: nowIso(),
     };
     deps.store.put(run);
-    const done = execute(runId, opts, controller.signal).then(() => {
-      const record = deps.store.get(runId);
-      const waiters = completionWaiters.get(runId);
-      completionWaiters.delete(runId);
-      if (waiters) for (const resolve of waiters) resolve(record);
-      return runId;
+    // 先登记 done 句柄，再入队：同步启动路径也不会丢终态通知。
+    const done = new Promise<string>((resolve) => {
+      doneResolvers.set(runId, resolve);
     });
+    pendingQueue.push({ runId, opts });
+    pump();
     return { runId, done };
   };
 
@@ -375,19 +436,33 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     awaitDone,
 
     cancel(runId: string): boolean {
-      const controller = controllers.get(runId);
       const run = deps.store.get(runId);
-      if (!controller || !run) return false;
-      if (run.status !== 'running' && run.status !== 'queued') return false;
+      if (!run) return false;
+      // 排队中：出队 + 直接落终态（不启动、不消耗 LLM/图片额度），并唤醒等待者。
+      if (run.status === 'queued') {
+        if (!dequeue(runId)) return false;
+        markQueuedCancelled(runId);
+        controllers.delete(runId);
+        settle(runId);
+        pump();
+        return true;
+      }
+      const controller = controllers.get(runId);
+      if (!controller || run.status !== 'running') return false;
       controller.abort();
       return true;
     },
 
     async resumeInterrupted(): Promise<number> {
+      // 重启语义：不在新进程里自动续跑——内存队列与活跃标记整体作废。
+      pendingQueue.length = 0;
+      activeRuns.clear();
       let recovered = 0;
       for (const run of deps.store.all()) {
         if (run.status !== 'running' && run.status !== 'queued') continue;
         deps.store.update(run.id, (current) => ({ ...current, status: 'interrupted', finishedAt: nowIso() }));
+        controllers.delete(run.id);
+        settle(run.id);
         recovered += 1;
       }
       return recovered;

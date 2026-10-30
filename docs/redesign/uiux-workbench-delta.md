@@ -14,7 +14,7 @@
 ```
 WewriteApp（.dsh-wewrite-panel.ww-root）
 └── .ww-shell
-    ├── TopBar（.ww-topbar，40px，4 导航对象 + 进度点 + 连接状态 + 齿轮）
+    ├── TopBar（.ww-topbar，40px，5 导航对象 + 进度点 + 连接状态 + 齿轮）
     ├── main.ww-content（工作区路由下加修饰符 .ww-content--flush）
     │   └── WorkbenchPanel（.ww-workbench，route: home | article）
     │       ├── ArticleRail（.ww-rail，240px 可折叠）
@@ -31,17 +31,17 @@ WewriteApp（.dsh-wewrite-panel.ww-root）
 
 退役：TopicPanel（输入卡转生 StartupCard + RailNewButton）、ArticlesPanel（表格转生 ArticleRail）、编辑器「返回列表」箭头（列表常驻左栏，语义消失）。
 
-### 1-1. TopBar（4 对象版，40px）
+### 1-1. TopBar（5 对象版，40px）
 
 | 项 | 契约 |
 |---|---|
 | 组件 | `TopBar`（由 PanelTabBar 改造；容器 class `ww-topbar`，替代 `ww-tabbar`——它不再是纯 Tab 条） |
 | 结构 | `header.ww-topbar > nav.ww-topbar__nav(aria-label="WeWrite 导航") + .ww-topbar__spacer + ProgressDot + button.ww-topbar__conn + button.ww-topbar__settings` |
-| 导航 Tab | `button.ww-tab`（沿用存量 class）× 3：写作 `pen-line` / 选题 `flame` / 定时 `calendar-clock`；激活态 `ww-tab--active` + `aria-current="page"`；icon 16px + gap 4 + 文字 14px |
+| 导航 Tab | `button.ww-tab`（沿用存量 class）× 4：写作 `pen-line` / 选题 `flame` / 定时 `calendar-clock` / 任务 `list-todo`；激活态 `ww-tab--active` + `aria-current="page"`；icon 16px + gap 4 + 文字 14px；任务 tab 在有活跃 run 时显示 `ww-tab__badge` 计数 |
 | 高度 | 40px（`--ww-toolrow-h`）；底线 2px accent 激活语言与 hover 内缩圆角（radius-sm 顶角）原样继承 v2 §1a-1 |
 | 设置齿轮 | `button.ww-topbar__settings`（icon-only 28px 热区，`settings` 图标）；`aria-label="设置"`；激活时 `aria-current="page"` + 同款底线 |
 | 连接状态 | `ww-topbar__conn` 结构语义不变（StateDot + 文案 + message-circle 16px），点击进设置 |
-| data-testid | `ww-topbar` / `ww-topbar-tab-home` / `ww-topbar-tab-hotspots` / `ww-topbar-tab-schedule` / `ww-topbar-settings` / `ww-topbar-conn` |
+| data-testid | `ww-topbar` / `ww-topbar-tab-home` / `ww-topbar-tab-hotspots` / `ww-topbar-tab-schedule` / `ww-topbar-tab-tasks` / `ww-topbar-settings` / `ww-topbar-conn` |
 | role 语义 | 页面导航用 `nav` + `aria-current="page"`（不用 tablist——无 tabpanel 配对；与现状一致，QA 锚点不破） |
 
 顶栏线框见 §2-4 图 W3。
@@ -183,7 +183,7 @@ WewriteApp（.dsh-wewrite-panel.ww-root）
 | 08 表格行高 44 | **锚点迁移**：文章库表格退役；44px 交互底线落到选题列表/设置可点行；左栏行 36px 为管理紧凑档（两档密度并存即 v2 密度对比原则的新表达） |
 | 09 Toast 抬高 | 适用：`bottom: var(--ww-content-pad-bottom)` 96px（与进度卡 144px 垂直错开，见 §1-5） |
 | 10 focus ring inherit | 原样适用（本 delta 全部新组件同守） |
-| 11 Tab hover 底 | **微调**：4 对象 40px 顶栏；3 Tab hover 内缩圆角底原样；图标集 = pen-line/flame/calendar-clock + settings 齿轮 |
+| 11 Tab hover 底 | **微调**：5 对象 40px 顶栏；4 Tab hover 内缩圆角底原样；图标集 = pen-line/flame/calendar-clock/list-todo + settings 齿轮 |
 | 12 选题窄态横条 | 原样适用（选题页骨架不动） |
 | 13 定时卡收纳 | 原样适用 |
 | 14 设置激活 icon | 原样适用 |

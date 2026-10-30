@@ -1,14 +1,16 @@
 /** WeWriteService（架构 §3）：host 级唯一服务；写操作串行化。重活已拆 images/wechat-flow/articles-store/schedules-store/views。 */
 
-import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotDigestItem, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse } from '../shared/contract';
+import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotItem, type HotspotItemDigest, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
 import { randomUUID } from 'node:crypto';
 import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
 import { SettingsRecordSchema, type RunRecord, type ScheduleAction, type ScheduleRecord, type TopicCandidateRecord } from './domain';
 import { rewriteSystemPrompt, rewriteUserPrompt, streamLlmText, type PipelineLlm } from './pipeline/llm';
 import { digestHotspotItem as runHotspotDigest } from './hotspot-digest';
+import { analyzeHotspot as runHotspotAnalyze } from './hotspot-analyze';
 import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunStore } from './pipeline/engine';
 import { aggregateHotspots, buildHotspotSources } from './pipeline/steps/topic';
+import { suggestTopics as runSuggestTopics } from './suggest-topics';
 import { qualityGatesRunner } from './pipeline/steps/gates';
 import { resolveLogger, unwrapCredential, type CredentialsService, type HostLogger, type LlmService, type StorageDomainHandle } from './platform';
 import { createAgentToolsGate, type AgentToolsGate } from './agent-tools-gate';
@@ -37,12 +39,20 @@ export interface ServiceDeps {
   readonly digestTimeoutMs?: number;
   /** AI 改写 LLM 调用超时毫秒（默认 45s；测试注入缩短值验证 abort 分支）。 */
   readonly rewriteTimeoutMs?: number;
+  /** 建议选题 LLM 调用超时毫秒（默认 45s；测试注入缩短值验证 abort 分支）。 */
+  readonly suggestTimeoutMs?: number;
   readonly agentToolsConfigDefault?: boolean; // AC-M1-12 插件 config 默认（patch 值；未显式设置时闸门回落它）
 }
 
 /** 热榜逐条速览与 AI 改写的单次 LLM 调用上限（uiux v0.3 拍板各 45s）。 */
 const HOTSPOT_DIGEST_TIMEOUT_MS = 45_000;
 const REWRITE_TIMEOUT_MS = 45_000;
+/** 建议选题：单次 LLM 调用 45s、缓存 30 分钟、从热榜前 30 条中筛选。 */
+const SUGGEST_TIMEOUT_MS = 45_000;
+const SUGGEST_CACHE_TTL_MS = 30 * 60_000;
+const SUGGEST_HOTSPOT_LIMIT = 30;
+/** 同时执行的管线 run 上限（任务中心串行队列；后续若开放设置项再替换为 settings）。 */
+const MAX_CONCURRENT_RUNS = 1;
 
 export class WeWriteService {
   private readonly tables: DomainTables;
@@ -59,6 +69,9 @@ export class WeWriteService {
   /** callId→runId 内存映射（M2 运行卡 callId 兜底链；有界 FIFO，dispose 清空）+ AC-M1-12 单一真源闸门。 */
   private readonly callBindings: CallRunBindings;
   private readonly agentToolsGate: AgentToolsGate;
+  /** 建议选题缓存（key = count + 写作要求；30 分钟 TTL）与同 key 并发请求复用。 */
+  private suggestCache: { key: string; at: number; value: SuggestedTopicsView } | undefined;
+  private readonly suggestInFlight = new Map<string, Promise<SuggestedTopicsView>>();
 
   private constructor(private readonly deps: ServiceDeps) {
     this.tables = openTables(deps.domain);
@@ -100,6 +113,7 @@ export class WeWriteService {
       writingProfile: () => this.settings.writingProfile,
       onImagesBound: ({ articleId, coverImageId, bodyImageIds }) =>
         this.articles.bindImages(articleId, { coverImageId, bodyImageIds }),
+      maxConcurrentRuns: MAX_CONCURRENT_RUNS,
       now: this.nowFn,
     });
     this.scheduler = createSchedulerService({
@@ -187,6 +201,59 @@ export class WeWriteService {
     );
   }
 
+  /** 热点结构化分析（确认弹层）：简介 + 可写角度；单次 LLM 调用，超时复用速览配置。 */
+  async analyzeHotspot(item: HotspotDigestItem): Promise<HotspotAnalysis> {
+    return runHotspotAnalyze(
+      {
+        llm: this.deps.llm as unknown as PipelineLlm,
+        provider: this.state.settings.llmDefault.provider,
+        model: this.state.settings.llmDefault.model,
+        ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
+        logger: this.logger,
+        timeoutMs: this.deps.digestTimeoutMs ?? HOTSPOT_DIGEST_TIMEOUT_MS,
+        nowIso: () => this.nowIso(),
+      },
+      item,
+    );
+  }
+
+  /**
+   * 建议选题（选题中心右栏）：写作要求 + 热榜 30 条 → 最多 10 条可写选题。
+   * 缓存 30 分钟（key = count + 写作要求），refresh 绕过缓存；同 key 并发请求复用同一 Promise。
+   */
+  async suggestTopics(input: { count?: number; refresh?: boolean } = {}): Promise<SuggestedTopicsView> {
+    const count = Math.min(10, Math.max(1, input.count ?? 10));
+    const key = `${count}:${JSON.stringify(this.settings.writingProfile)}`;
+    const now = this.nowFn().getTime();
+    if (!input.refresh && this.suggestCache?.key === key && now - this.suggestCache.at < SUGGEST_CACHE_TTL_MS) {
+      return this.suggestCache.value;
+    }
+    const inFlight = this.suggestInFlight.get(key);
+    if (inFlight) return inFlight;
+    const task = (async () => {
+      const hotspots = await this.fetchHotspots(SUGGEST_HOTSPOT_LIMIT);
+      const value = await runSuggestTopics(
+        {
+          llm: this.deps.llm as unknown as PipelineLlm,
+          provider: this.state.settings.llmDefault.provider,
+          model: this.state.settings.llmDefault.model,
+          logger: this.logger,
+          profile: this.settings.writingProfile,
+          timeoutMs: this.deps.suggestTimeoutMs ?? SUGGEST_TIMEOUT_MS,
+          nowIso: () => this.nowIso(),
+        },
+        hotspots,
+        count,
+      );
+      this.suggestCache = { key, at: this.nowFn().getTime(), value };
+      return value;
+    })().finally(() => {
+      this.suggestInFlight.delete(key);
+    });
+    this.suggestInFlight.set(key, task);
+    return task;
+  }
+
   /** AI 改写选中段（uiux v0.3 §3）：只输出改写文本，maxTokens 随原文长度缩放。 */
   async rewriteText(input: { text: string; instruction: string; title?: string }): Promise<{ text: string }> {
     const startedAt = Date.now();
@@ -229,7 +296,7 @@ export class WeWriteService {
     }
   }
 
-  startRun(input: { trigger: 'manual' | 'schedule'; params: RunParams; articleId?: string; scheduleId?: string }): { runId: string } {
+  startRun(input: { trigger: 'manual' | 'schedule' | 'chat'; params: RunParams; articleId?: string; scheduleId?: string }): { runId: string } {
     // settings.llmDefault 解析进 params.llm（本次显式覆盖优先）——paramsSnapshot 记录实际用的供应商/模型。
     const params: RunParams = { ...input.params, llm: { ...this.state.settings.llmDefault, ...(input.params.llm ?? {}) } };
     const { runId, done } = this.engine.begin({
@@ -247,6 +314,21 @@ export class WeWriteService {
 
   cancelRun(runId: string): { ok: boolean } {
     return { ok: this.engine.cancel(runId) };
+  }
+
+  /** 任务中心重试：沿用原 run 的 paramsSnapshot（含原模型覆盖）重新入队；活跃 run 拒绝重试。 */
+  retryRun(runId: string): { runId: string } {
+    const record = this.runStore.get(runId);
+    if (!record) throw new WewriteServiceError('run-not-found', `运行记录不存在（runId: ${runId}）`);
+    if (record.status === 'queued' || record.status === 'running') {
+      throw new WewriteServiceError('run-active', `运行仍在进行中（${record.status}），请先取消再重试`);
+    }
+    return this.startRun({
+      trigger: record.trigger,
+      params: record.paramsSnapshot,
+      ...(record.scheduleId ? { scheduleId: record.scheduleId } : {}),
+      ...(record.articleId ? { articleId: record.articleId } : {}),
+    });
   }
 
   /** chat-integration M1：等待 run 到终态（wewrite_run 工具 execute 等终态用；未知 runId → undefined）。 */
@@ -505,6 +587,8 @@ export class WeWriteService {
   async dispose(): Promise<void> {
     this.scheduler.stop();
     this.callBindings.clear();
+    this.suggestInFlight.clear();
+    this.suggestCache = undefined;
     await this.deps.domain.close().catch(() => undefined);
   }
 }

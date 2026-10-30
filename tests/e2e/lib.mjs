@@ -84,6 +84,7 @@ export const TAB = {
   home: '[data-testid="ww-topbar-tab-home"]',
   hotspots: '[data-testid="ww-topbar-tab-hotspots"]',
   schedule: '[data-testid="ww-topbar-tab-schedule"]',
+  tasks: '[data-testid="ww-topbar-tab-tasks"]',
 };
 
 /** 点顶栏导航对象并断言 aria-current=page 跟随 */

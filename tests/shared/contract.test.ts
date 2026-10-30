@@ -72,6 +72,7 @@ const runSummary = () => ({
   id: 'run_1',
   trigger: 'manual' as const,
   status: 'succeeded' as const,
+  topic: 'AI 写作管线产品化',
   startedAt: '2026-08-18T04:00:02.000Z',
   finishedAt: '2026-08-18T04:05:11.000Z',
 });
@@ -123,6 +124,8 @@ const EXPECTED_ENDPOINTS = [
   'snapshot',
   'hotspots/fetch',
   'hotspots/digestItem',
+  'hotspots/analyze',
+  'hotspots/suggest',
   'article/list',
   'article/get',
   'article/save',
@@ -131,6 +134,7 @@ const EXPECTED_ENDPOINTS = [
   'article/rewrite',
   'run/start',
   'run/cancel',
+  'run/retry',
   'run/detail',
   'schedule/save',
   'schedule/delete',
@@ -160,10 +164,10 @@ describe('RPC 通道常量（Spec §5 头部 + 架构 F13）', () => {
     expect(CONTRACT_VERSION).toBe(1);
   });
 
-  it('端点全集精确等于 20 基础 + v0.3 增补 2 + chat 增补 run/detail = 23，无增无减（AC-M2-01）', () => {
+  it('端点全集精确等于 20 基础 + v0.3 增补 2 + chat 增补 run/detail + 建议选题 + 热点分析 + 任务中心 run/retry = 26，无增无减（AC-M2-01）', () => {
     expect([...RPC_ENDPOINTS].sort()).toEqual([...EXPECTED_ENDPOINTS].sort());
     expect(Object.keys(rpcContract).sort()).toEqual([...EXPECTED_ENDPOINTS].sort());
-    expect(EXPECTED_ENDPOINTS.length).toBe(23);
+    expect(EXPECTED_ENDPOINTS.length).toBe(26);
   });
 
   it('每个端点同时具备 request 与 response schema', () => {
@@ -226,6 +230,74 @@ const CASES: EndpointCase[] = [
     ],
     validResponse: { digest: '这条在讲什么：某引擎开源。', source: 'article', model: 'glm-4.5-flash', generatedAtIso: '2026-08-20T12:00:00.000Z' },
     invalidResponse: { digest: '', source: 'rss', model: 'glm-4.5-flash', generatedAtIso: 'not-a-date' },
+  },
+  {
+    endpoint: 'hotspots/analyze',
+    name: 'hotspots/analyze：rank/title/url 请求，响应 summary/angle/source/model/generatedAtIso',
+    validRequests: [
+      { rank: 1, title: '某热榜标题', url: 'https://news.ycombinator.com/item?id=1' },
+      { rank: 30, title: '标题三十', url: 'https://a.test/30' },
+    ],
+    invalidRequests: [
+      {},
+      { rank: 0, title: '标题', url: 'https://a.test/1' },
+      { rank: 101, title: '标题', url: 'https://a.test/1' },
+      { rank: 1, title: '', url: 'https://a.test/1' },
+      { rank: 1, title: '标题', url: 'not-a-url' },
+    ],
+    validResponse: {
+      summary: '某引擎发布新版本，重点在推理成本与延迟的取舍。',
+      angle: '从工程取舍切入，落到普通开发者的实际选择。',
+      source: 'article',
+      model: 'glm-4.5-flash',
+      generatedAtIso: '2026-08-20T12:00:00.000Z',
+    },
+    invalidResponse: { summary: '', angle: '角度', source: 'rss', model: 'glm-4.5-flash', generatedAtIso: 'not-a-date' },
+  },
+  {
+    endpoint: 'hotspots/suggest',
+    name: 'hotspots/suggest：可选 count（1-10）与 refresh；响应为建议选题列表 + 生成元信息',
+    validRequests: [{}, { count: 10 }, { count: 1 }, { refresh: true }, { count: 10, refresh: false }],
+    invalidRequests: [
+      { count: 0 },
+      { count: 11 },
+      { count: 1.5 },
+      { count: '10' },
+      { refresh: 'yes' },
+      { extra: 1 },
+    ],
+    validResponse: {
+      topics: [
+        {
+          title: 'AI 眼镜突然提速：真正的变化不在硬件',
+          angle: '从隐私边界与社交礼仪切入，落到普通人的日常取舍。',
+          source: 'weibo',
+          sourceRank: 3,
+          sourceTitle: '某品牌发布新一代 AI 眼镜',
+          sourceUrl: 'https://s.weibo.com/weibo?q=AI眼镜',
+        },
+      ],
+      generatedAtIso: '2026-08-20T12:00:00.000Z',
+      model: 'glm-4.5-flash',
+      profileUsed: true,
+      totalHotspots: 30,
+    },
+    invalidResponse: {
+      topics: [
+        {
+          title: '标题',
+          angle: '',
+          source: 'weibo',
+          sourceRank: 3,
+          sourceTitle: '原标题',
+          sourceUrl: 'https://s.weibo.com/weibo?q=x',
+        },
+      ],
+      generatedAtIso: 'not-a-date',
+      model: 'glm-4.5-flash',
+      profileUsed: 'yes',
+      totalHotspots: 30,
+    },
   },
   {
     endpoint: 'article/list',

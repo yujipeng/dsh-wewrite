@@ -41,6 +41,13 @@
   white-space: nowrap;
 }
 
+.ww-progress-card__queue {
+  flex: none;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-fg-tertiary);
+  white-space: nowrap;
+}
+
 .ww-progress-card__collapse {
   appearance: none;
   border: none;

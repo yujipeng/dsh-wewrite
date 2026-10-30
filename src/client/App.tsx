@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
+import type { RunSummary } from '@/shared/contract';
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { Translate } from './lib/context';
 import type { WewriteRpc } from './lib/rpc';
@@ -12,6 +13,7 @@ import { useOverlayIntent } from './chat/overlay-bridge';
 import { WorkbenchPanel } from './panels/workbench-panel';
 import { HotspotsPanel } from './panels/hotspots-panel';
 import { SchedulePanel } from './panels/schedule-panel';
+import { TasksPanel } from './panels/tasks-panel';
 import { SettingsPanel } from './panels/settings-panel';
 import './styles/tokens.css';
 import './styles/base.css';
@@ -116,6 +118,8 @@ function PanelBody() {
       return <HotspotsPanel />;
     case 'schedule':
       return <SchedulePanel />;
+    case 'tasks':
+      return <TasksPanel />;
     case 'settings':
       return <SettingsPanel />;
   }
@@ -136,8 +140,10 @@ export function WewriteApp({ rpc, t }: { rpc: WewriteRpc; t: Translate }) {
 
 function PanelChrome() {
   const store = useStore();
-  const { route, navigate, snapshot, refreshSnapshot, toastMessages, dismissToast, generation, activeRun } = store;
+  const { route, navigate, snapshot, refreshSnapshot, toastMessages, dismissToast, toast, generation, activeRuns } = store;
   const [progressCardOpen, setProgressCardOpen] = useState(true);
+  /** 上一轮快照的 run 状态（任务完成 Toast 去重基线）。 */
+  const notifiedStatusRef = useRef<Map<string, RunSummary['status']>>(new Map());
 
   // 聊天卡点击 → 写作台定位（AC-M2-04）：消费一次性 overlayIntent，路由到该文章。
   useOverlayIntent(navigate);
@@ -146,7 +152,8 @@ function PanelChrome() {
     void refreshSnapshot();
   }, [refreshSnapshot]);
 
-  const generating = generation !== null && activeRun !== undefined && (activeRun.status === 'queued' || activeRun.status === 'running');
+  // 轮询/进度点判据：只要存在任一 queued/running run（不限于本面板提交的主任务）。
+  const generating = activeRuns.length > 0;
 
   // 新 run 提交后进度卡回到展开默认（首次全屏确认收起后由卡接管）。
   const runId = generation?.runId;
@@ -159,6 +166,36 @@ function PanelChrome() {
     const timer = window.setInterval(() => void refreshSnapshot(), period);
     return () => window.clearInterval(timer);
   }, [generating, refreshSnapshot]);
+
+  // 非主任务完成通知：主任务的完成 Toast 由 GenerationLayer 负责；其余合并成一条计数，
+  // 避免同时跑多个任务时 Toast 刷屏。首次快照只建立基线，不补发历史终态。
+  useEffect(() => {
+    if (snapshot.status !== 'ready') return;
+    const runs = snapshot.data.runs;
+    const previous = notifiedStatusRef.current;
+    if (previous.size === 0) {
+      for (const run of runs) previous.set(run.id, run.status);
+      return;
+    }
+    const finished: RunSummary[] = [];
+    for (const run of runs) {
+      const previousStatus = previous.get(run.id);
+      const terminal =
+        run.status === 'succeeded' || run.status === 'failed' || run.status === 'cancelled' || run.status === 'interrupted';
+      if (previousStatus && previousStatus !== run.status && terminal && run.id !== generation?.runId) {
+        finished.push(run);
+      }
+      previous.set(run.id, run.status);
+    }
+    if (finished.length === 0) return;
+    const failed = finished.some((run) => run.status === 'failed');
+    const names = finished.slice(0, 2).map((run) => `《${run.topic || '未命名任务'}》`).join('、');
+    toast.push({
+      kind: failed ? 'error' : 'success',
+      title: `${finished.length} 个任务已完成`,
+      detail: finished.length > 2 ? `${names} 等` : names,
+    });
+  }, [snapshot, generation, toast]);
 
   const connection = useMemo(() => {
     if (snapshot.status !== 'ready') return { configured: false, loading: snapshot.status === 'loading' };

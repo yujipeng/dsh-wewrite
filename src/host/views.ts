@@ -39,6 +39,7 @@ export function runToSummary(record: RunRecord): RunSummary {
     ...(record.scheduleId ? { scheduleId: record.scheduleId } : {}),
     ...(record.articleId ? { articleId: record.articleId } : {}),
     status: record.status,
+    topic: record.paramsSnapshot.topic ?? '',
     startedAt: record.startedAt,
     ...(record.finishedAt ? { finishedAt: record.finishedAt } : {}),
     ...(record.error ? { error: { code: record.error.code, message: record.error.message } } : {}),

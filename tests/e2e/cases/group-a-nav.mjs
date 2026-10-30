@@ -1,6 +1,6 @@
 /**
  * A 组 导航（5 条，fresh）——蓝本 §2.4 A01-A05 按 v0.2 新 IA 重锚。
- * 锚点：TopBar 4 导航对象（ww-topbar / 3 tab / 设置齿轮），DOM 契约 §1-1。
+ * 锚点：TopBar 5 导航对象（ww-topbar / 4 tab / 设置齿轮），DOM 契约 §1-1。
  * 相位：fresh（storage 重置为空 unit——空态断言与「未配置」徽标态的确定性保证）。
  */
 import {
@@ -21,7 +21,7 @@ export default [
     phase: 'fresh',
     // 前置：fresh 相位（空 unit）；runner 已 openPanel 穿越到面板。
     // 步骤：读顶栏结构。
-    // 断言：AC-1 —— 顶栏有且仅有 4 个导航对象（3 tab + 设置齿轮），高 ≤40px，
+    // 断言：AC-1 —— 顶栏有且仅有 5 个导航对象（4 tab + 设置齿轮），高 ≤40px，
     //       写作 tab 激活（aria-current=page）；旧 5 Tab 的「文章库」不存在（负向）。
     fn: async (page) => {
       const topbar = page.locator(LOC.topbar).first();
@@ -30,8 +30,8 @@ export default [
       const nav = page.locator(LOC.topbarNav).first();
       await expectVisible(nav, { msg: 'nav[aria-label="WeWrite 导航"] 未出现' });
       const navButtons = nav.locator('button');
-      assert.equal(await navButtons.count(), 3, '导航 tab 数应为 3（写作/选题/定时），AC-1');
-      for (const word of ['写作', '选题', '定时']) {
+      assert.equal(await navButtons.count(), 4, '导航 tab 数应为 4（写作/选题/定时/任务），AC-1');
+      for (const word of ['写作', '选题', '定时', '任务']) {
         assert.ok(
           (await nav.getByText(word, { exact: false }).count()) > 0,
           `导航内未找到「${word}」文本`,
@@ -66,13 +66,14 @@ export default [
     group: 'A 导航',
     phase: 'fresh',
     // 前置：A01。
-    // 步骤：逐个点 4 个导航对象（写作→选题→定时→设置→回写作）。
+    // 步骤：逐个点 5 个导航对象（写作→选题→定时→任务→设置→回写作）。
     // 断言：每次点击 aria-current=page 跟随；对应面板容器出现；内容区常在不白屏。
     fn: async (page) => {
       const cases = [
         ['home', LOC.workbench, '写作工作区'],
         ['hotspots', '.ww-hotspots', '选题中心'],
         ['schedule', '.ww-schedule', '定时任务'],
+        ['tasks', '.ww-tasks', '任务中心'],
       ];
       for (const [key, sel, name] of cases) {
         const btn = await clickTab(page, key);

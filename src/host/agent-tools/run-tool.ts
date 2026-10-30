@@ -220,7 +220,7 @@ export function buildRunTool(service: WeWriteService): WewriteToolDefinition {
         ...(parsed.briefSources?.length ? { sources: parsed.briefSources } : {}),
       };
       const { runId } = service.startRun({
-        trigger: 'manual',
+        trigger: 'chat',
         params: {
           topicMode: 'fixed',
           topic: parsed.topic,

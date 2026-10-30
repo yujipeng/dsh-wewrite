@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { HotspotItem } from '@/shared/contract';
+import type { HotspotItem, SuggestedTopicView, SuggestedTopicsView } from '@/shared/contract';
+import { domainOf, formatTime, hotspotSourceLabel, isHttpUrl } from '../lib/format';
 import { describeRpcFailure, WewriteRpcError } from '../lib/rpc';
-import { domainOf, formatTime, hotspotSourceLabel } from '../lib/format';
 import { EmptyState, ErrorNote, SkeletonRow } from '../components/bits';
 import { HotspotItemDigest } from '../components/HotspotItemDigest';
+import { TopicConfirmDialog, type TopicDraft } from '../components/TopicConfirmDialog';
 import { Icon } from '../components/Icon';
 import { useStore } from '../store';
 
 /**
- * 选题中心（DESIGN §9.2）：左热榜列表（行 44px 按热度排序）+ 右「我的选题关键词」窄栏。
- * 命中关键词的行底 --ww-accent-subtle；「写这个」带 topic 直进生成流程。
+ * 选题中心（DESIGN §9.2）：左列「我的选题关键词」+ 热门榜，右侧「建议选题」；左 6 右 4。
+ * 命中关键词的行底 --ww-accent-subtle；「写这个」先打开确认弹层（来源/链接/AI 分析）。
  * v0.3 R1：行展开区 = 原文链接行 + 逐条 AI 速览块（HotspotItemDigest，懒加载+逐条缓存）。
  */
 
@@ -33,14 +34,70 @@ type HotspotsState =
   | { status: 'error'; message: string }
   | { status: 'ready'; items: HotspotItem[]; fetchedAtIso: string };
 
+type SuggestState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; data: SuggestedTopicsView };
+
+interface SuggestFailure {
+  title: string;
+  hint?: string;
+  needSettings: boolean;
+}
+
+/** 宿主信封把真实 code 放在 message 前缀（`[internal] [llm-not-configured] …`）：剥掉给用户看正文。 */
+function stripCodePrefix(message: string): string {
+  return message.replace(/^(\[[^\]]+\]\s*)+/, '').trim();
+}
+
+function describeSuggestFailure(message: string): SuggestFailure {
+  if (message.includes('llm-not-configured')) {
+    return { title: '生成建议选题需要先配置模型。', hint: '到「设置 → 模型」选择供应商与模型后回来刷新。', needSettings: true };
+  }
+  if (message.includes('suggest-no-hotspots')) {
+    return { title: stripCodePrefix(message) || '热榜里没有可用条目。', needSettings: false };
+  }
+  if (message.includes('suggest-timeout')) {
+    return { title: '建议选题生成超时。', hint: '可以重试，或稍后再刷新。', needSettings: false };
+  }
+  return { title: '建议选题生成失败。', hint: stripCodePrefix(message) || undefined, needSettings: false };
+}
+
 export function HotspotsPanel() {
   const store = useStore();
-  const { rpc, navigate, startGeneration, t } = store;
+  const { rpc, navigate, t } = store;
   const [state, setState] = useState<HotspotsState>({ status: 'idle' });
+  const [suggest, setSuggest] = useState<SuggestState>({ status: 'idle' });
+  const [draft, setDraft] = useState<TopicDraft | null>(null);
   const [keywords, setKeywords] = useState<string[]>(loadKeywords);
   const [keywordDraft, setKeywordDraft] = useState('');
   const [onlyHits, setOnlyHits] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  /** 热点榜/定时候选共用：启动前先确认。 */
+  const openHotspotDraft = (item: { title: string; source: string; rank: number; url: string }) => {
+    setDraft({
+      kind: 'hotspot',
+      title: item.title,
+      source: item.source,
+      sourceRank: item.rank,
+      sourceTitle: item.title,
+      sourceUrl: item.url,
+    });
+  };
+
+  const openSuggestedDraft = (topic: SuggestedTopicView) => {
+    setDraft({
+      kind: 'suggested',
+      title: topic.title,
+      angle: topic.angle,
+      source: topic.source,
+      sourceRank: topic.sourceRank,
+      sourceTitle: topic.sourceTitle,
+      sourceUrl: topic.sourceUrl,
+    });
+  };
 
   useEffect(() => {
     try {
@@ -67,6 +124,27 @@ export function HotspotsPanel() {
     void fetchHotspots();
   }, [fetchHotspots]);
 
+  /** refresh=true 绕过 host 30 分钟缓存；进入页面首次加载走缓存。 */
+  const loadSuggestions = useCallback(async (refresh = false) => {
+    setSuggest({ status: 'loading' });
+    try {
+      const data = await rpc.call<SuggestedTopicsView>('hotspots/suggest', {
+        count: 10,
+        ...(refresh ? { refresh: true } : {}),
+      });
+      setSuggest({ status: 'ready', data });
+    } catch (error) {
+      setSuggest({ status: 'error', message: error instanceof WewriteRpcError ? error.message : String(error) });
+    }
+  }, [rpc]);
+
+  const initialSuggest = useRef(false);
+  useEffect(() => {
+    if (initialSuggest.current) return;
+    initialSuggest.current = true;
+    void loadSuggestions();
+  }, [loadSuggestions]);
+
   const hit = useCallback((item: HotspotItem): boolean => keywords.some((word) => word && item.title.includes(word)), [keywords]);
 
   const visible = useMemo(() => {
@@ -77,6 +155,8 @@ export function HotspotsPanel() {
 
   const failure = state.status === 'error' ? describeRpcFailure(new Error(state.message)) : undefined;
   const candidates = store.snapshot.status === 'ready' ? store.snapshot.data.topicCandidates : [];
+  const suggested = suggest.status === 'ready' ? suggest.data : undefined;
+  const suggestFailure = suggest.status === 'error' ? describeSuggestFailure(suggest.message) : undefined;
 
   function addKeyword() {
     const word = keywordDraft.trim();
@@ -88,6 +168,48 @@ export function HotspotsPanel() {
   return (
     <div className={store.narrow ? 'ww-hotspots ww-hotspots--narrow' : 'ww-hotspots'}>
       <div className="ww-hotspots__main">
+        <section className="ww-hotspots__keywords">
+          <h3 className="ww-aside-title">我的选题关键词</h3>
+          <div className="ww-keywords">
+            {keywords.map((word) => (
+              /* P5：Pill 本体不再整删（静态 chip），删除收敛到独立 × 按钮（真 button + aria-label） */
+              <span className="ww-keyword" key={word}>
+                <Pill>
+                  {word}
+                  <button
+                    type="button"
+                    className="ww-keyword__x"
+                    aria-label={`移除关键词「${word}」`}
+                    data-testid="ww-keyword-remove"
+                    onClick={() => setKeywords((current) => current.filter((item) => item !== word))}
+                  >
+                    <Icon name="x" size={16} />
+                  </button>
+                </Pill>
+              </span>
+            ))}
+            {keywords.length === 0 ? <p className="ww-aside-empty">还没有订阅关键词。添加后命中的条目会高亮。</p> : null}
+          </div>
+          <div className="ww-keywords__add">
+            <Input
+              placeholder="添加关键词"
+              value={keywordDraft}
+              onChange={(event) => setKeywordDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') addKeyword();
+              }}
+              aria-label="添加选题关键词"
+            />
+            <Button variant="outline" size="sm" icon={<Icon name="plus" size={16} />} onClick={addKeyword} aria-label="添加关键词">
+              添加
+            </Button>
+          </div>
+          <button type="button" className={onlyHits ? 'ww-filter-toggle ww-filter-toggle--on' : 'ww-filter-toggle'} onClick={() => setOnlyHits((on) => !on)} aria-pressed={onlyHits}>
+            <Icon name="filter" size={16} /> 命中筛选：{onlyHits ? '仅显示命中' : '看全部'}
+          </button>
+        </section>
+
+        <div className="ww-hotspots__board">
         <div className="ww-pagebar">
           {/* Bluewash §4-2：选题域页头识别点（橙） */}
           <span className="ww-pagebar__dot" data-view="topics" />
@@ -128,7 +250,7 @@ export function HotspotsPanel() {
                     variant="outline"
                     size="sm"
                     icon={<Icon name="pen-line" size={16} />}
-                    onClick={() => void startGeneration({ topicMode: 'fixed', topic: item.title }, item.title)}
+                    onClick={() => openHotspotDraft(item)}
                   >
                     {t('action.writeThis')}
                   </Button>
@@ -189,7 +311,7 @@ export function HotspotsPanel() {
                     type="button"
                     className="ww-hotspot__write"
                     aria-label={`写这个：${item.title}`}
-                    onClick={() => void startGeneration({ topicMode: 'fixed', topic: item.title }, item.title)}
+                    onClick={() => openHotspotDraft(item)}
                   >
                     <Icon name="pen-line" size={16} />
                     <span>{t('action.writeThis')}</span>
@@ -208,48 +330,101 @@ export function HotspotsPanel() {
             ))}
           </ul>
         )}
+        </div>
       </div>
 
-      <aside className="ww-hotspots__keywords">
-        <h3 className="ww-aside-title">我的选题关键词</h3>
-        <div className="ww-keywords">
-          {keywords.map((word) => (
-            /* P5：Pill 本体不再整删（静态 chip），删除收敛到独立 × 按钮（真 button + aria-label） */
-            <span className="ww-keyword" key={word}>
-              <Pill>
-                {word}
-                <button
-                  type="button"
-                  className="ww-keyword__x"
-                  aria-label={`移除关键词「${word}」`}
-                  data-testid="ww-keyword-remove"
-                  onClick={() => setKeywords((current) => current.filter((item) => item !== word))}
-                >
-                  <Icon name="x" size={16} />
-                </button>
-              </Pill>
-            </span>
-          ))}
-          {keywords.length === 0 ? <p className="ww-aside-empty">还没有订阅关键词。添加后命中的条目会高亮。</p> : null}
-        </div>
-        <div className="ww-keywords__add">
-          <Input
-            placeholder="添加关键词"
-            value={keywordDraft}
-            onChange={(event) => setKeywordDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') addKeyword();
-            }}
-            aria-label="添加选题关键词"
-          />
-          <Button variant="outline" size="sm" icon={<Icon name="plus" size={16} />} onClick={addKeyword} aria-label="添加关键词">
-            添加
-          </Button>
-        </div>
-        <button type="button" className={onlyHits ? 'ww-filter-toggle ww-filter-toggle--on' : 'ww-filter-toggle'} onClick={() => setOnlyHits((on) => !on)} aria-pressed={onlyHits}>
-          <Icon name="filter" size={16} /> 命中筛选：{onlyHits ? '仅显示命中' : '看全部'}
-        </button>
+      <aside className="ww-hotspots__aside">
+        <section className="ww-suggest" data-testid="ww-suggested-topics">
+          <div className="ww-suggest__head">
+            <h3 className="ww-aside-title">
+              <Icon name="sparkles" size={16} /> 建议选题
+            </h3>
+            {suggested ? (
+              <span className="ww-suggest__meta">
+                {suggested.topics.length} 条 · {formatTime(suggested.generatedAtIso)}
+              </span>
+            ) : null}
+            <span className="ww-suggest__spacer" />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="重新生成建议选题"
+              icon={<Icon name={suggest.status === 'loading' ? 'loader-circle' : 'refresh-cw'} size={16} className={suggest.status === 'loading' ? 'ww-spin' : undefined} />}
+              onClick={() => void loadSuggestions(true)}
+            >
+              {t('action.refresh')}
+            </Button>
+          </div>
+
+          {suggested && !suggested.profileUsed ? (
+            <div className="ww-suggest__notice">
+              <span>还没有填写公众号写作要求，本次按热榜可写性筛选；补充后匹配更准。</span>
+              <button type="button" className="ww-suggest__link" onClick={() => navigate({ kind: 'settings' })}>
+                去设置
+              </button>
+            </div>
+          ) : null}
+
+          {suggest.status === 'loading' || suggest.status === 'idle' ? (
+            <div className="ww-suggest__skeleton">
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+          ) : suggest.status === 'error' ? (
+            <ErrorNote
+              title={suggestFailure?.title ?? '建议选题生成失败。'}
+              hint={suggestFailure?.hint}
+              action={
+                suggestFailure?.needSettings ? (
+                  <Button variant="outline" size="sm" onClick={() => navigate({ kind: 'settings' })}>
+                    {t('action.goSettings')}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => void loadSuggestions(true)}>
+                    {t('action.retry')}
+                  </Button>
+                )
+              }
+            />
+          ) : suggested && suggested.topics.length > 0 ? (
+            <ol className="ww-suggest__list">
+              {suggested.topics.map((topic, index) => (
+                <li key={`${topic.source}-${topic.sourceRank}-${index}`} className="ww-suggest__item">
+                  <button
+                    type="button"
+                    className="ww-suggest__main"
+                    aria-label={`写这个：${topic.title}`}
+                    onClick={() => openSuggestedDraft(topic)}
+                  >
+                    <span className="ww-suggest__rank">{index + 1}</span>
+                    <span className="ww-suggest__title">{topic.title}</span>
+                    <span className="ww-suggest__angle">{topic.angle}</span>
+                  </button>
+                  {isHttpUrl(topic.sourceUrl) ? (
+                    <a className="ww-suggest__source" href={topic.sourceUrl} target="_blank" rel="noreferrer" title={topic.sourceTitle}>
+                      源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
+                    </a>
+                  ) : (
+                    <span className="ww-suggest__source">
+                      源自 {hotspotSourceLabel(topic.source)} #{topic.sourceRank} · {topic.sourceTitle}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="ww-aside-empty">这次没有筛出合适的选题。刷新热榜或调整写作要求后再试。</p>
+          )}
+        </section>
       </aside>
+      {draft ? (
+        <TopicConfirmDialog
+          key={`${draft.kind}:${draft.sourceRank}:${draft.title}`}
+          draft={draft}
+          onClose={() => setDraft(null)}
+        />
+      ) : null}
     </div>
   );
 }

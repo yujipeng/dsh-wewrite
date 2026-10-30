@@ -363,7 +363,8 @@ DomainSpec
 | `article/delete` | `{ id }` | `{ deleted: boolean }` | |
 | `article/preview` | `{ id }` 或 `{ markdown, theme }` | `{ html }` | host 侧渲染返回（预览=产物一致性） |
 | `run/start` | `{ articleId? , params: RunParams }` | `{ runId }` | 手动跑管线 |
-| `run/cancel` | `{ runId }` | `{ ok }` | AbortSignal 贯穿 |
+| `run/cancel` | `{ runId }` | `{ ok }` | AbortSignal 贯穿；queued 直接出队落 cancelled |
+| `run/retry` | `{ runId }` | `{ runId }` | 任务中心：复用原 paramsSnapshot 重新入队；活跃 run 拒绝 |
 | `schedule/save` | `{ id?, name, rrule, timeZone, params, enabled }` | `ScheduleViewModel` | 创建/更新（revision++） |
 | `schedule/delete` / `schedule/toggle` / `schedule/runNow` | `{ id }` / `{ id, enabled }` / `{ id }` | 对应视图 | |
 | `config/get` | `{}` | `ConfigView`（全脱敏：settings 非机密项 + credentials describe() 描述符 + imageProviders 有序表） | |
