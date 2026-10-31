@@ -54,6 +54,7 @@ export const RPC_ENDPOINTS = [
   'article/preview',
   'article/rewrite',
   'image/get',
+  'image/generate',
   'run/start',
   'run/cancel',
   'run/retry',
@@ -160,6 +161,16 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
   'image/get': {
     request: z.strictObject({ imageId: z.string().min(1) }),
     response: ImageAssetSchema,
+  },
+  // 手动补图：只生成首图或内图，可替换已有图；返回更新后的文章详情。
+  'image/generate': {
+    request: z.strictObject({
+      articleId: z.string().min(1),
+      kind: z.enum(['cover', 'body']),
+      count: z.number().int().min(1).max(10).optional(),
+      replace: z.boolean().optional(),
+    }),
+    response: ArticleDetailSchema,
   },
   'article/rewrite': {
     request: z.strictObject({

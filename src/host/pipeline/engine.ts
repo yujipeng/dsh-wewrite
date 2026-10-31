@@ -53,6 +53,9 @@ export interface ImagesGenerator {
     articleId?: string;
     topic?: string;
     markdown?: string;
+    /** 手动补图：只生成封面或只生成正文图；缺省两者都生成。 */
+    includeCover?: boolean;
+    includeBody?: boolean;
   }): Promise<{
     coverImageId?: string;
     bodyImageIds: string[];

@@ -21,6 +21,7 @@ import { createSchedulerService } from './scheduler/service';
 import { createDomainRunStore, openTables, parseGlobalState, type DomainTables, type GlobalState } from './store';
 import { createImagesGenerator } from './images';
 import { generateImagePlan } from './images/plan';
+import { countImagePlaceholders, ensureImagePlaceholders } from './images/placeholders';
 import { ArticleStore } from './articles-store';
 import { ScheduleStore } from './schedules-store';
 import { diagnoseWeChat, pushArticleDraft, type PushArticleResult, type WeChatFlowDeps } from './wechat-flow';
@@ -111,26 +112,7 @@ export class WeWriteService {
       gates: qualityGatesRunner,
       renderer: { convert: ({ markdown, theme }) => convertArticle({ markdown, theme }) },
       topicSource: { fetch: async (limit: number) => [...(await this.fetchHotspots(limit))] },
-      images: createImagesGenerator({
-        getSettings: () => this.settings,
-        resolveCredential: (ref) => Promise.resolve(deps.credentials.resolve(ref)).then(unwrapCredential),
-        now: this.nowFn,
-        ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
-        planPrompts: ({ topic, markdown, count }) =>
-          generateImagePlan(
-            {
-              llm: this.deps.llm as unknown as PipelineLlm,
-              provider: this.state.settings.llmDefault.provider,
-              model: this.state.settings.llmDefault.model,
-              timeoutMs: IMAGE_PLAN_TIMEOUT_MS,
-              logger: this.logger,
-            },
-            { ...(topic ? { topic } : {}), markdown: markdown ?? '', count },
-          ),
-        persist: async (records) => {
-          for (const record of records) await this.tables.images.put(record.id, record);
-        },
-      }),
+      images: this.buildImageGenerator(),
       onProduced: ({ markdown, runId, mechanisms }) => this.articles.persistProduced(markdown, runId, mechanisms),
       writingProfile: () => this.settings.writingProfile,
       previousMechanisms: () => this.recentMechanisms(),
@@ -175,6 +157,76 @@ export class WeWriteService {
     const recovered = await service.engine.resumeInterrupted();
     if (recovered > 0) service.logger.warn(`宿主停机打断 ${recovered} 个 run，已标记 interrupted（不自动补偿重跑）`);
     return service;
+  }
+
+  /** 管线与手动补图共用同一套图片生成器（provider 链 / 凭据 / 压缩 / 验图 / 成本上限）。 */
+  private buildImageGenerator(): ReturnType<typeof createImagesGenerator> {
+    return createImagesGenerator({
+      getSettings: () => this.settings,
+      resolveCredential: (ref) => Promise.resolve(this.deps.credentials.resolve(ref)).then(unwrapCredential),
+      now: this.nowFn,
+      ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
+      planPrompts: ({ topic, markdown, count }) =>
+        generateImagePlan(
+          {
+            llm: this.deps.llm as unknown as PipelineLlm,
+            provider: this.state.settings.llmDefault.provider,
+            model: this.state.settings.llmDefault.model,
+            timeoutMs: IMAGE_PLAN_TIMEOUT_MS,
+            logger: this.logger,
+          },
+          { ...(topic ? { topic } : {}), markdown: markdown ?? '', count },
+        ),
+      persist: async (records) => {
+        for (const record of records) await this.tables.images.put(record.id, record);
+      },
+    });
+  }
+
+  /** 手动补图：只生成首图或内图，可替换已有图；内图会自动补齐正文占位符。 */
+  async generateArticleImages(input: {
+    articleId: string;
+    kind: 'cover' | 'body';
+    count?: number;
+    replace?: boolean;
+  }): Promise<ArticleDetail> {
+    const article = this.articles.get(input.articleId);
+    const isBody = input.kind === 'body';
+    const placeholders = countImagePlaceholders(article.markdown);
+    const requested = isBody
+      ? Math.min(10, Math.max(1, input.count ?? Math.min(Math.max(placeholders, 1), 3)))
+      : 0;
+    const result = await this.buildImageGenerator().generate({
+      count: requested,
+      articleId: article.id,
+      topic: article.title,
+      markdown: article.markdown,
+      includeCover: !isBody,
+      includeBody: isBody,
+    });
+    if (result.skipped) throw new WewriteServiceError('image-skipped', result.skipped);
+    if (isBody) {
+      if (!result.bodyImageIds.length) throw new WewriteServiceError('image-empty', '没有生成正文图');
+      const next = input.replace ? [...result.bodyImageIds] : [...article.bodyImageIds, ...result.bodyImageIds];
+      await this.articles.bindImages(article.id, { bodyImageIds: next });
+      if (placeholders < next.length) {
+        await this.articles.save({
+          id: article.id,
+          slug: article.slug,
+          title: article.title,
+          digest: article.digest,
+          markdown: ensureImagePlaceholders(article.markdown, next.length),
+          theme: article.theme,
+        });
+      }
+    } else {
+      if (!result.coverImageId) throw new WewriteServiceError('image-empty', '没有生成封面图');
+      await this.articles.bindImages(article.id, {
+        coverImageId: result.coverImageId,
+        bodyImageIds: [],
+      });
+    }
+    return this.articles.get(article.id);
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {

@@ -33,6 +33,8 @@ export function ArticleManage({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [imagesOpen, setImagesOpen] = useState(false);
+  const [generating, setGenerating] = useState<'cover' | 'body' | undefined>();
+  const [imageError, setImageError] = useState<string | undefined>();
 
   const imageIds = [
     ...(article.coverImageId ? [article.coverImageId] : []),
@@ -46,6 +48,28 @@ export function ArticleManage({
       toast.push({ kind: 'success', title: '发布记录已复制' });
     } catch (error) {
       toast.push({ kind: 'error', title: '复制失败', detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function generateImages(kind: 'cover' | 'body') {
+    if (generating) return;
+    setGenerating(kind);
+    setImageError(undefined);
+    try {
+      const saved = await rpc.call<ArticleDetail>('image/generate', {
+        articleId: article.id,
+        kind,
+        ...(kind === 'body' ? { replace: article.bodyImageIds.length > 0 } : {}),
+      });
+      onChanged(saved);
+      await refreshSnapshot();
+      toast.push({ kind: 'success', title: kind === 'cover' ? '首图已生成' : '内图已生成' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setImageError(message);
+      toast.push({ kind: 'error', title: '配图生成失败', detail: message });
+    } finally {
+      setGenerating(undefined);
     }
   }
 
@@ -192,11 +216,17 @@ export function ArticleManage({
       </Modal>
       <ArticleImagesModal
         open={imagesOpen}
-        onClose={() => setImagesOpen(false)}
+        onClose={() => {
+          setImagesOpen(false);
+          setImageError(undefined);
+        }}
         article={article}
         images={imageAssets}
         loading={imagesLoading}
         {...(imagesError ? { error: imagesError } : {})}
+        {...(imageError ? { generationError: imageError } : {})}
+        onGenerate={generateImages}
+        {...(generating ? { generating } : {})}
       />
     </>
   );

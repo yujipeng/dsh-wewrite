@@ -21,6 +21,8 @@ interface RpcPayload {
   readonly topicCount?: number;
   readonly limit?: number;
   readonly count?: number;
+  readonly kind?: string;
+  readonly replace?: boolean;
   readonly refresh?: boolean;
   readonly rank?: number;
   readonly url?: string;
@@ -80,6 +82,13 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
       );
     case 'image/get':
       return service.getImage(String(payload.imageId));
+    case 'image/generate':
+      return service.generateArticleImages({
+        articleId: String(payload.articleId),
+        kind: payload.kind === 'body' ? 'body' : 'cover',
+        ...(payload.count !== undefined ? { count: Number(payload.count) } : {}),
+        ...(payload.replace !== undefined ? { replace: Boolean(payload.replace) } : {}),
+      });
     case 'article/rewrite':
       return service.rewriteText({
         text: String(payload.text),

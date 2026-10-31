@@ -133,6 +133,7 @@ const EXPECTED_ENDPOINTS = [
   'article/preview',
   'article/rewrite',
   'image/get',
+  'image/generate',
   'run/start',
   'run/cancel',
   'run/retry',
@@ -165,10 +166,10 @@ describe('RPC 通道常量（Spec §5 头部 + 架构 F13）', () => {
     expect(CONTRACT_VERSION).toBe(1);
   });
 
-  it('端点全集精确等于 20 基础 + v0.3 增补 2 + chat 增补 run/detail + 建议选题 + 热点分析 + 任务中心 run/retry + 工作台看图 image/get = 27，无增无减（AC-M2-01）', () => {
+  it('端点全集精确等于 20 基础 + v0.3 增补 2 + chat 增补 run/detail + 建议选题 + 热点分析 + 任务中心 run/retry + 工作台看图 image/get + 手动补图 image/generate = 28，无增无减（AC-M2-01）', () => {
     expect([...RPC_ENDPOINTS].sort()).toEqual([...EXPECTED_ENDPOINTS].sort());
     expect(Object.keys(rpcContract).sort()).toEqual([...EXPECTED_ENDPOINTS].sort());
-    expect(EXPECTED_ENDPOINTS.length).toBe(27);
+    expect(EXPECTED_ENDPOINTS.length).toBe(28);
   });
 
   it('每个端点同时具备 request 与 response schema', () => {

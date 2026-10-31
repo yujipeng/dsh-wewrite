@@ -742,6 +742,16 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
 }
 
 /* 工作台看图（配图区）：封面/正文图缩略图，显示尺寸/大小并支持下载 */
+.ww-image-gallery__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ww-space-2);
+  margin-bottom: var(--ww-space-3);
+}
+.ww-image-gallery__actions .ww-modal-note {
+  margin: 0;
+}
 .ww-image-gallery {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

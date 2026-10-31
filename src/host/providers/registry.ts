@@ -11,6 +11,8 @@ export interface ImageAttempt {
   readonly tries: number;
   readonly outcome: 'success' | 'error';
   readonly codes: readonly string[];
+  /** 最近一次失败的 provider message（排障用；成功时缺省）。 */
+  readonly messages?: readonly string[];
 }
 
 export interface FallbackOutcome {
@@ -21,7 +23,13 @@ export interface FallbackOutcome {
 
 export class ImageFallbackExhaustedError extends Error {
   constructor(readonly attempts: readonly ImageAttempt[]) {
-    super(`全部图片供应商失败（${attempts.length} 家尝试链）`);
+    const detail = attempts
+      .map((attempt) => {
+        const lastMessage = attempt.messages?.[attempt.messages.length - 1];
+        return `${attempt.providerId}(${attempt.codes.join('/') || 'unknown'}${lastMessage ? `: ${lastMessage.slice(0, 160)}` : ''})`;
+      })
+      .join('；');
+    super(`全部图片供应商失败（${attempts.length} 家尝试链${detail ? `：${detail}` : ''}）`);
     this.name = 'ImageFallbackExhaustedError';
   }
 }
@@ -41,6 +49,7 @@ export async function runImageFallback(
   const attempts: ImageAttempt[] = [];
   for (const provider of providers) {
     const codes: string[] = [];
+    const messages: string[] = [];
     let tries = 0;
     for (;;) {
       tries += 1;
@@ -59,8 +68,9 @@ export async function runImageFallback(
                 message: thrown instanceof Error ? thrown.message : String(thrown ?? '未知错误'),
               });
         codes.push(error.code);
+        messages.push(error.message);
         if (error.retryable && tries < MAX_TRIES_PER_PROVIDER) continue;
-        attempts.push({ providerId: provider.id, tries, outcome: 'error', codes });
+        attempts.push({ providerId: provider.id, tries, outcome: 'error', codes, messages });
         break;
       }
     }

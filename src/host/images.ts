@@ -60,7 +60,7 @@ const BODY_SIZE: ImageSize = '1280x720';
 
 export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerator {
   return {
-    generate: async ({ count, articleId, topic, markdown }) => {
+    generate: async ({ count, articleId, topic, markdown, includeCover = true, includeBody = true }) => {
       const settings = deps.getSettings();
       // I-20：成本预估超上限则跳过配图（未配置单价/上限时不限制）。
       const budget = shouldSkipImages(count, settings);
@@ -149,16 +149,24 @@ export function createImagesGenerator(deps: ImagesGeneratorDeps): ImagesGenerato
         throw new Error(`图片校验未通过：${lastIssues.slice(0, 3).join('；') || '未知原因'}`);
       };
 
-      const cover = await make(composeImagePrompt(plan, 'cover'), 'cover', COVER_TARGET, COVER_SIZE);
+      const cover = includeCover
+        ? await make(composeImagePrompt(plan, 'cover'), 'cover', COVER_TARGET, COVER_SIZE)
+        : undefined;
       const bodies: ImageRecord[] = [];
-      for (let index = 0; index < count; index += 1) {
-        bodies.push(
-          await make(composeImagePrompt(plan, 'body', index), 'body', BODY_TARGET, BODY_SIZE),
-        );
+      if (includeBody) {
+        for (let index = 0; index < count; index += 1) {
+          bodies.push(
+            await make(composeImagePrompt(plan, 'body', index), 'body', BODY_TARGET, BODY_SIZE),
+          );
+        }
       }
-      const stored = [cover, ...bodies];
-      await deps.persist(stored);
-      return { coverImageId: stored[0].id, bodyImageIds: bodies.map((record) => record.id), plan };
+      const stored = [...(cover ? [cover] : []), ...bodies];
+      if (stored.length) await deps.persist(stored);
+      return {
+        ...(cover ? { coverImageId: cover.id } : {}),
+        bodyImageIds: bodies.map((record) => record.id),
+        plan,
+      };
     },
   };
 }

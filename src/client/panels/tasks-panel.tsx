@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { RunDetail, RunSummary } from '@/shared/contract';
 import { formatDuration, formatShortDateTime } from '../lib/format';
+import { stepStatusText } from '../lib/run-step-status';
 import { EmptyState, ErrorNote, runStatusBadge, SkeletonBlock, StatusBadge } from '../components/bits';
 import { Icon } from '../components/Icon';
 import { useStore } from '../store';
@@ -172,7 +173,7 @@ export function TasksPanel() {
                   {detail.steps.map((step) => (
                     <li key={step.name} className={`ww-task__step ww-task__step--${step.status}`}>
                       <span className="ww-task__step-name">{STEP_LABELS[step.name] ?? step.name}</span>
-                      <span className="ww-task__step-status">{step.status}</span>
+                      <span className="ww-task__step-status">{stepStatusText(step)}</span>
                       {step.error ? <span className="ww-task__step-error">{step.error.message}</span> : null}
                     </li>
                   ))}

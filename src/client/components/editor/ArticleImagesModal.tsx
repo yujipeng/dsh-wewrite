@@ -20,6 +20,9 @@ export function ArticleImagesModal({
   images,
   loading,
   error,
+  generationError,
+  onGenerate,
+  generating,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,6 +30,9 @@ export function ArticleImagesModal({
   images: Record<string, ImageAsset>;
   loading: boolean;
   error?: string;
+  generationError?: string;
+  onGenerate: (kind: 'cover' | 'body') => void | Promise<void>;
+  generating?: 'cover' | 'body';
 }) {
   const cover = article.coverImageId ? images[article.coverImageId] : undefined;
   const body = article.bodyImageIds
@@ -48,6 +54,35 @@ export function ArticleImagesModal({
     >
       {loading ? <p className="ww-modal-note">加载配图…</p> : null}
       {error ? <p className="ww-image-gallery__error">{error}</p> : null}
+      {generationError ? (
+        <p className="ww-image-gallery__error" data-testid="ww-image-generate-error">
+          生成失败：{generationError}
+        </p>
+      ) : null}
+      <div className="ww-image-gallery__actions">
+        <Button
+          variant="primary"
+          size="sm"
+          className="ww-btn-accent"
+          data-testid="ww-image-generate-cover"
+          disabled={Boolean(generating)}
+          onClick={() => void onGenerate('cover')}
+        >
+          {generating === 'cover' ? '生成首图中…' : article.coverImageId ? '替换首图' : '生成首图'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          data-testid="ww-image-generate-body"
+          disabled={Boolean(generating)}
+          onClick={() => void onGenerate('body')}
+        >
+          {generating === 'body' ? '生成内图中…' : article.bodyImageIds.length ? '替换内图' : '生成内图'}
+        </Button>
+        <span className="ww-modal-note">
+          内图按正文占位生成（最多 3 张）；已有内图时执行替换。
+        </span>
+      </div>
       {!loading && all.length === 0 ? (
         <p className="ww-modal-note">这篇文章还没有配图。运行配图步或在写作台重新生成后会出现在这里。</p>
       ) : null}
