@@ -14,7 +14,7 @@ import { ImagesSection, LlmSection } from './settings-models';
 const GROUPS: ReadonlyArray<{ id: SettingsGroup; label: string; icon: IconName; hint: string }> = [
   { id: 'wechat', label: '公众号', icon: 'message-circle', hint: 'AppID / AppSecret / 作者名' },
   { id: 'llm', label: '模型服务', icon: 'cpu', hint: '复用宿主供应商与模型' },
-  { id: 'images', label: '图片供应商', icon: 'image', hint: '9 家 fallback 链排序' },
+  { id: 'images', label: '图片供应商', icon: 'image', hint: '10 家可选 / 默认链 9 家' },
   { id: 'proxy', label: 'API 代理', icon: 'globe', hint: '微信接口统一出口 + 连接测试' },
   { id: 'discipline', label: '发布纪律', icon: 'shield', hint: '草稿箱锁定，无自动群发' },
 ];

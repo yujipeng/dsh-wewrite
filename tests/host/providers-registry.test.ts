@@ -15,6 +15,7 @@ import { DEFAULT_IMAGE_PROVIDER_CHAIN, IMAGE_PROVIDER_IDS } from '@/shared/image
 import { createOpenAiProvider } from '@/host/providers/openai';
 import { createDoubaoProvider } from '@/host/providers/doubao';
 import { createDashscopeProvider } from '@/host/providers/dashscope';
+import { createQwenImageProvider } from '@/host/providers/qwen-image';
 import { createJimengProvider } from '@/host/providers/jimeng';
 import { createMinimaxProvider } from '@/host/providers/minimax';
 import { createAzureOpenAiProvider } from '@/host/providers/azure-openai';
@@ -108,6 +109,7 @@ const PROVIDER_FACTORIES: ReadonlyArray<[string, () => ImageProvider]> = [
   ['openai', createOpenAiProvider],
   ['doubao', createDoubaoProvider],
   ['dashscope', createDashscopeProvider],
+  ['qwen_image', createQwenImageProvider],
   ['jimeng', createJimengProvider],
   ['minimax', createMinimaxProvider],
   ['azure_openai', createAzureOpenAiProvider],
@@ -125,9 +127,9 @@ afterEach(() => {
 });
 
 describe('供应商 ID 常量（架构 §7.1）', () => {
-  it('IMAGE_PROVIDER_IDS 精确包含 9 家', () => {
+  it('IMAGE_PROVIDER_IDS 精确包含 10 家（含 qwen_image）', () => {
     expect([...IMAGE_PROVIDER_IDS].sort()).toEqual(
-      ['azure_openai', 'doubao', 'dashscope', 'gemini', 'jimeng', 'minimax', 'openai', 'openrouter', 'replicate'].sort(),
+      ['azure_openai', 'doubao', 'dashscope', 'gemini', 'jimeng', 'minimax', 'openai', 'openrouter', 'qwen_image', 'replicate'].sort(),
     );
   });
 
@@ -245,16 +247,18 @@ describe('runImageFallback：fallback 编排（AC-9）', () => {
   });
 
   it('全链失败：抛 ImageFallbackExhaustedError，携带完整尝试史（架构：尝试链入 metrics）', async () => {
-    const providers = PROVIDER_FACTORIES.map(([id]) =>
-      scriptedProvider(
-        id,
-        [
-          async () => {
-            throw new ImageProviderError({ providerId: id, code: 'AUTH', message: '凭据无效' });
-          },
-        ],
-      ),
-    );
+    const providers = PROVIDER_FACTORIES
+      .filter(([id]) => (DEFAULT_IMAGE_PROVIDER_CHAIN as readonly string[]).includes(id))
+      .map(([id]) =>
+        scriptedProvider(
+          id,
+          [
+            async () => {
+              throw new ImageProviderError({ providerId: id, code: 'AUTH', message: '凭据无效' });
+            },
+          ],
+        ),
+      );
     const attempt = runImageFallback(providers, resolveAllWith(cfg()), imageReq());
 
     await expect(attempt).rejects.toBeInstanceOf(ImageFallbackExhaustedError);
@@ -290,15 +294,27 @@ describe('9 家 provider 传输层单测（HTTP mock，双形态解析）', () =
   for (const [providerId, factory] of PROVIDER_FACTORIES) {
     describe(`${providerId}`, () => {
       const isDashscope = providerId === 'dashscope';
+      const isQwen = providerId === 'qwen_image';
       // DashScope 走异步任务：submit -> poll(SUCCEEDED) -> download。
       const dashscopeRoutes = () => [
         () => jsonResponse({ output: { task_id: 'task_1' } }),
         () => jsonResponse({ output: { task_status: 'SUCCEEDED', results: [{ url: CDN_URL }] } }),
         () => binaryResponse(PNG_MAGIC),
       ];
+      // Qwen-Image 走同步 multimodal-generation：一次响应给 image URL -> download。
+      const qwenRoutes = () => [
+        () => jsonResponse({ output: { choices: [{ message: { content: [{ image: CDN_URL }] } }] } }),
+        () => binaryResponse(PNG_MAGIC),
+      ];
 
-      it('b64_json 形态：解析出精确 PNG 字节', async () => {
-        const { captured } = mockFetch(isDashscope ? dashscopeRoutes() : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
+      it('标准响应形态：解析出精确 PNG 字节', async () => {
+        const { captured } = mockFetch(
+          isDashscope
+            ? dashscopeRoutes()
+            : isQwen
+              ? qwenRoutes()
+              : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })],
+        );
         const provider = factory();
         const result = await provider.generate(imageReq(), cfg());
 
@@ -306,14 +322,16 @@ describe('9 家 provider 传输层单测（HTTP mock，双形态解析）', () =
         expect(Buffer.compare(result.images[0].buffer, Buffer.from(PNG_MAGIC))).toBe(0);
         expect(result.images[0].mime.startsWith('image/')).toBe(true);
         expect(result.model).toBe('test-image-model');
-        expect(captured.length).toBe(isDashscope ? 3 : 1);
+        expect(captured.length).toBe(isDashscope ? 3 : isQwen ? 2 : 1);
       });
 
       it('url 形态：二次拉取 URL 拿到二进制', async () => {
         const { captured } = mockFetch(
           isDashscope
             ? dashscopeRoutes()
-            : [() => jsonResponse({ data: [{ url: CDN_URL }] }), () => binaryResponse(PNG_MAGIC)],
+            : isQwen
+              ? qwenRoutes()
+              : [() => jsonResponse({ data: [{ url: CDN_URL }] }), () => binaryResponse(PNG_MAGIC)],
         );
         const provider = factory();
         const result = await provider.generate(imageReq(), cfg());
@@ -328,7 +346,13 @@ describe('9 家 provider 传输层单测（HTTP mock，双形态解析）', () =
 
       it('请求不变量：baseUrl 前缀 + POST + prompt 传递 + 凭据携带 + signal 透传', async () => {
         const controller = new AbortController();
-        const { captured } = mockFetch(isDashscope ? dashscopeRoutes() : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })]);
+        const { captured } = mockFetch(
+          isDashscope
+            ? dashscopeRoutes()
+            : isQwen
+              ? qwenRoutes()
+              : [() => jsonResponse({ data: [{ b64_json: PNG_B64 }] })],
+        );
         const provider = factory();
         await provider.generate(imageReq({ signal: controller.signal }), cfg());
 

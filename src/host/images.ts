@@ -18,6 +18,7 @@ import type { ImageGenRequest, ImageProvider, ImageSize, ResolvedProviderConfig 
 import { createAzureOpenAiProvider } from './providers/azure-openai';
 import { createDoubaoProvider } from './providers/doubao';
 import { createDashscopeProvider } from './providers/dashscope';
+import { createQwenImageProvider } from './providers/qwen-image';
 import { createGeminiProvider } from './providers/gemini';
 import { createJimengProvider } from './providers/jimeng';
 import { createMinimaxProvider } from './providers/minimax';
@@ -29,6 +30,7 @@ export const PROVIDER_FACTORIES: Readonly<Record<ImageProviderId, (fetchImpl?: t
   openai: createOpenAiProvider,
   doubao: createDoubaoProvider,
   dashscope: createDashscopeProvider,
+  qwen_image: createQwenImageProvider,
   jimeng: createJimengProvider,
   minimax: createMinimaxProvider,
   azure_openai: createAzureOpenAiProvider,

@@ -8,6 +8,7 @@ export const IMAGE_PROVIDER_IDS = [
   'openai',
   'doubao',
   'dashscope',
+  'qwen_image',
   'jimeng',
   'minimax',
   'azure_openai',
@@ -18,14 +19,28 @@ export const IMAGE_PROVIDER_IDS = [
 
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
-/** 默认 fallback 链：用户可在设置里重排/删减，但缺省顺序锁定。 */
-export const DEFAULT_IMAGE_PROVIDER_CHAIN: readonly ImageProviderId[] = [...IMAGE_PROVIDER_IDS];
+/**
+ * 默认 fallback 链：保持既有 9 家顺序（qwen_image 是可选 provider，
+ * 未配置凭据时不进入默认链，避免每次生成多一次失败尝试）。
+ */
+export const DEFAULT_IMAGE_PROVIDER_CHAIN: readonly ImageProviderId[] = [
+  'openai',
+  'doubao',
+  'dashscope',
+  'jimeng',
+  'minimax',
+  'azure_openai',
+  'gemini',
+  'openrouter',
+  'replicate',
+];
 
 /** 各家缺省模型（ResolvedProviderConfig.model 缺省时的回退值；openai 由 Jerry 指令锁定 gpt-image-2）。 */
 export const DEFAULT_PROVIDER_MODELS: Readonly<Record<ImageProviderId, string>> = {
   openai: 'gpt-image-2',
   doubao: 'doubao-seededit-3-0-i2i',
   dashscope: 'wanx2.1-t2i-turbo',
+  qwen_image: 'qwen-image-2.0',
   jimeng: 'jimeng-2.1-latest',
   minimax: 'image-01',
   azure_openai: 'gpt-image-2',

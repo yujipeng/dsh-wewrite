@@ -26,6 +26,8 @@ export const PROVIDER_IMAGE_SIZES: Readonly<Record<ImageProviderId, readonly Ima
   // dashscope 万相：实测 1024×1024 / 1280×720 可提交；1280×720 覆盖正文 16:9，
   // 封面 2.35:1 由后处理裁剪（不直接请求 2048 大尺寸，避免限流/尺寸限制）。
   dashscope: ['1024x1024', '1280x720'],
+  // Qwen-Image 同步接口：总像素 512*512–2048*2048；1280×720 覆盖正文，封面裁剪。
+  qwen_image: ['1024x1024', '1280x720'],
   doubao: STANDARD_SIZES,
   jimeng: STANDARD_SIZES,
   minimax: STANDARD_SIZES,
