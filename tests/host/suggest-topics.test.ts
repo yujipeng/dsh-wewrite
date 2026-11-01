@@ -27,6 +27,8 @@ const PROFILE = {
   blacklistWords: ['震惊'],
   blacklistTopics: ['裁员'],
   coverStyle: '',
+  styleGuide: '',
+  styleExemplars: [],
 };
 
 const hotspot = (title: string, index = 1): HotspotItem => ({

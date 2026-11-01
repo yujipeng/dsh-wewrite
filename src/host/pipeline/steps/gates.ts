@@ -109,6 +109,47 @@ function auditFigureNumbering(markdown: string, imageCount: number): { passed: b
   return { passed: issues.length === 0, issues };
 }
 
+// ── 范文重合（I-24）：防止整句搬运范文；只告警，不阻断 ────────────────────────
+
+/** 触发告警的最短连续重合长度（按归一化后的汉字/字母/数字计）。 */
+export const EXEMPLAR_OVERLAP_MIN_RUN = 15;
+
+/** 归一化：去掉代码块、Markdown 结构、空白与标点，只留汉字/字母/数字，避免排版差异漏检。 */
+function normalizeForOverlap(text: string): string {
+  return text
+    .replace(/(```|~~~)[\s\S]*?\1/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[^\p{Script=Han}A-Za-z0-9]/gu, '');
+}
+
+/** 返回第一段 ≥ minRun 的连续重合文本；没有则 null。 */
+export function findExemplarOverlap(text: string, excerpt: string, minRun = EXEMPLAR_OVERLAP_MIN_RUN): string | null {
+  const source = [...normalizeForOverlap(text)];
+  const sample = [...normalizeForOverlap(excerpt)];
+  if (source.length < minRun || sample.length < minRun) return null;
+  const windows = new Set<string>();
+  for (let i = 0; i + minRun <= sample.length; i += 1) windows.add(sample.slice(i, i + minRun).join(''));
+  for (let i = 0; i + minRun <= source.length; i += 1) {
+    const window = source.slice(i, i + minRun).join('');
+    if (windows.has(window)) return window;
+  }
+  return null;
+}
+
+/** 范文重合审计：命中的范文序号 + 重合片段；只用于报告，不参与 passed。 */
+export function auditExemplarOverlap(
+  markdown: string,
+  excerpts: readonly string[],
+): { passed: boolean; issues: string[] } {
+  const issues: string[] = [];
+  excerpts.forEach((excerpt, index) => {
+    const run = findExemplarOverlap(markdown, excerpt);
+    if (run) issues.push(`与范文 ${index + 1} 连续重合 ${EXEMPLAR_OVERLAP_MIN_RUN} 字：「${run}」`);
+  });
+  return { passed: issues.length === 0, issues };
+}
+
 export interface GatesReport {
   readonly strict: true;
   readonly bannedWords: readonly { readonly pattern: string; readonly count: number }[];
@@ -127,6 +168,8 @@ export interface GatesReport {
   readonly contract: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-22：事实主张—来源门禁；未携带 claims 时 undefined。 */
   readonly claims: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
+  /** I-24：与范文的连续重合告警；未携带 styleExemplars 时 undefined。只告警，不参与 passed。 */
+  readonly exemplarOverlap: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-23：Crossref DOI 核对结果（只记录，不参与 passed 判定）。 */
   readonly crossref?: CrossrefReport;
   readonly issues: readonly string[];
@@ -157,6 +200,8 @@ export interface RunGatesInput {
   readonly mustAvoid?: readonly string[];
   /** I-22：主张—来源结构；fact 类必须有 sourceIds。 */
   readonly claims?: readonly GateClaim[];
+  /** I-24：范文正文（仅 excerpt）；给了即启用重合告警，不进入 issues、不阻断。 */
+  readonly styleExemplars?: readonly string[];
 }
 
 // ── 来源门禁（v0.5 docs/v0.5-launch-brief.md §2「来源」硬绑）──────────────────
@@ -293,6 +338,11 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
       })()
     : undefined;
 
+  // I-24：范文重合只写报告，不进入 issues（不阻断）。
+  const exemplarOverlap = input.styleExemplars?.length
+    ? auditExemplarOverlap(text, input.styleExemplars)
+    : undefined;
+
   const issues: string[] = [];
   if (bannedWords.length) issues.push(`禁用词命中 ${bannedWords.length} 组`);
   if (internalMarkers) issues.push(`内部标记残留 ${internalMarkers} 处`);
@@ -320,6 +370,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
     outlineSkeleton,
     contract,
     claims,
+    exemplarOverlap,
     issues,
   };
   return { passed: issues.length === 0, report };
@@ -335,6 +386,7 @@ export const qualityGatesRunner: GatesRunner = {
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
+    styleExemplars?: readonly string[];
     crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }) {
     const result = runQualityGates({
@@ -344,6 +396,7 @@ export const qualityGatesRunner: GatesRunner = {
       ...(input.mustInclude?.length ? { mustInclude: input.mustInclude } : {}),
       ...(input.mustAvoid?.length ? { mustAvoid: input.mustAvoid } : {}),
       ...(input.claims?.length ? { claims: input.claims } : {}),
+      ...(input.styleExemplars?.length ? { styleExemplars: input.styleExemplars } : {}),
     });
     if (!input.crossref) return result;
     // I-23：DOI 核对只写报告，不改 passed（默认关闭时 verifyClaimDois 直接返回，不发请求）。

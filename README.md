@@ -191,6 +191,10 @@ DSH Host（Node + Cordis）
 | 目标字数 / 内容风格 / 写作人格 | `word_count` / `content_style` / `writing_persona` |
 | 禁用词 / 不写的话题 | 硬性负向约束（`blacklist.words` / `blacklist.topics`） |
 | 封面风格 | 配图与封面提示参考（`cover_style`） |
+| 风格指南 | 段落与句长、信息密度、展开顺序、开头/收尾禁区；注入大纲、成稿与编辑评审（`styleGuide`） |
+| 范文片段 | 最多 3 段，只校准结构与节奏，提示词层禁止复用其中观点、句子与经历（`styleExemplars`） |
+
+仓库内 `docs/style/` 保存当前账号的风格基准与范文来源；`scripts/seed-style.mjs` 可把它们播种到本机配置（先 `npm run host:stop`，播种后再 `npm run host:start`）。
 
 **图片供应商链**
 

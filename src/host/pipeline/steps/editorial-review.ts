@@ -4,7 +4,8 @@
  * 判定：任一维 < 3.5 或存在 blocker → 不通过；majorIssues 只记录。
  */
 
-import { streamLlmText, type PipelineLlm } from '../llm';
+import { streamLlmText, styleGuideLines, type PipelineLlm } from '../llm';
+import type { WritingProfile } from '../../../shared/schema-base';
 import type { HostLogger } from '../../platform';
 
 export const REVIEW_DIMENSIONS = ['accuracy', 'viewpoint', 'usefulness', 'voice', 'readability'] as const;
@@ -43,6 +44,8 @@ export interface EditorialReviewDeps {
 export interface EditorialReviewInput {
   readonly markdown: string;
   readonly topic?: string;
+  /** 本账号风格基线（含风格指南与范文）；用来给 voice 维度定标，不参与事实判断。 */
+  readonly profile?: WritingProfile;
 }
 
 const SYSTEM_PROMPT = [
@@ -52,11 +55,16 @@ const SYSTEM_PROMPT = [
 ].join('');
 
 function userPrompt(input: EditorialReviewInput): string {
+  const styleLines = styleGuideLines(input.profile);
   return [
     input.topic ? `主题：${input.topic}` : '',
+    ...(styleLines.length
+      ? ['', '本账号风格基线（voice 维度按它打分；与事实冲突时以准确为先）：', ...styleLines]
+      : []),
     '请评审下面的成稿，严格输出 JSON：',
     '{"dimensions":{"accuracy":0,"viewpoint":0,"usefulness":0,"voice":0,"readability":0},"blockers":[],"majorIssues":[],"mechanisms":[],"notes":"一句话总评"}',
-    '字段说明：accuracy=事实准确；viewpoint=论证是否成立；usefulness=读者能否用上；voice=是否符合公众号表达；readability=结构与节奏；mechanisms=本篇用到的解释机制（2–5 条，如沉没成本、损失厌恶、社会证明）。',
+    '字段说明：accuracy=事实准确；viewpoint=论证是否成立；usefulness=读者能否用上；voice=是否贴合给定风格基线（无基线时看表达是否稳定可信，重点核对每千字数字密度、问号、第一人称、连续单句段与对偶句频率）；readability=结构与节奏；mechanisms=本篇用到的解释机制（2–5 条，如沉没成本、损失厌恶、社会证明）。',
+    'majorIssues 每条必须引用成稿里的具体句子或数据，并指出它违反的风格条款（如「每千字数字 < 20」「连续 3 段单句成段」「设问推进过多」）或事实问题；不要写「表达不错」「可以更生动」这类空评。',
     '',
     '成稿：',
     input.markdown,

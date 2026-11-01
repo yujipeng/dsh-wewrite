@@ -31,6 +31,17 @@ export const ImageProviderConfigSchema = z.strictObject({
 export type ImageProviderConfig = z.infer<typeof ImageProviderConfigSchema>;
 
 /**
+ * 风格范文片段：只用于校准结构与节奏，提示词层强制声明不得复用其中观点、句子与经历。
+ * 长度上限按注入预算设定（3 条 × 2000 字），保存时由设置页校验。
+ */
+export const StyleExemplarSchema = z.strictObject({
+  title: z.string().trim().max(120).default(''),
+  excerpt: z.string().trim().max(2000).default(''),
+  learn: z.string().trim().max(200).default(''),
+});
+export type StyleExemplar = z.infer<typeof StyleExemplarSchema>;
+
+/**
  * 公众号写作要求（参考 wechat-article/.wewrite/style.yaml）：
  * 生成文章时作为硬性要求注入 outline/draft prompt；空字段不注入。
  */
@@ -46,6 +57,10 @@ export const WritingProfileSchema = z.strictObject({
   blacklistWords: z.array(z.string()).default([]),
   blacklistTopics: z.array(z.string()).default([]),
   coverStyle: z.string().default(''),
+  /** 风格基准全文（段落/句式/信息密度/禁区），注入 outline、draft 与编辑评审。 */
+  styleGuide: z.string().trim().max(4000).default(''),
+  /** 范文片段（≤3 条）；空数组不注入。 */
+  styleExemplars: z.array(StyleExemplarSchema).max(3).default([]),
 });
 export type WritingProfile = z.infer<typeof WritingProfileSchema>;
 
@@ -61,6 +76,8 @@ export const EMPTY_WRITING_PROFILE: WritingProfile = {
   blacklistWords: [],
   blacklistTopics: [],
   coverStyle: '',
+  styleGuide: '',
+  styleExemplars: [],
 };
 
 export const LlmOverrideSchema = z.strictObject({

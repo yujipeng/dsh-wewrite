@@ -108,9 +108,9 @@ export async function streamLlmText(
 }
 
 const SYSTEM_STYLE = [
-  '你是一位长期给技术类公众号写稿的作者，行文克制、信息密度高。',
+  '你是一位长期写公众号的作者，行文克制、信息密度高。',
   '不写套话与总结腔，不用「总而言之」「值得一提」一类空转词。',
-  '面向已具备工程背景的读者，直接进入具体事实与取舍。',
+  '先给具体事实与场景，再给机制与判断；读者是谁、写到多深，以写作要求为准。',
 ].join('');
 
 /** 公众号写作要求（来自设置页，参考 wechat-article/.wewrite/style.yaml）；空项不注入。 */
@@ -126,6 +126,37 @@ export function writingProfileLines(profile?: WritingProfile): string[] {
   if (profile.persona) lines.push(`写作人格：${profile.persona}`);
   if (profile.blacklistWords.length) lines.push(`禁用词（不得出现）：${profile.blacklistWords.join('、')}`);
   if (profile.blacklistTopics.length) lines.push(`不写的话题：${profile.blacklistTopics.join('、')}`);
+  return lines;
+}
+
+/** 风格指南与范文的长度上限（提示词层兜底；schema 已限制保存值）。 */
+const STYLE_GUIDE_MAX_CHARS = 4000;
+const EXEMPLAR_EXCERPT_MAX_CHARS = 2000;
+
+function truncateForPrompt(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…（已截断）` : text;
+}
+
+/**
+ * 风格基准与范文块（I-24）：只校准结构与节奏，空值不注入。
+ * 范文必须带「禁止复用」声明；超长内容按注入预算截断。
+ */
+export function styleGuideLines(profile?: WritingProfile): string[] {
+  if (!profile) return [];
+  const lines: string[] = [];
+  const guide = profile.styleGuide.trim();
+  if (guide) {
+    lines.push('', '文风基准（必须遵守；与事实冲突时以事实与来源约束为准）：', truncateForPrompt(guide, STYLE_GUIDE_MAX_CHARS));
+  }
+  const exemplars = profile.styleExemplars.filter((item) => item.excerpt.trim()).slice(0, 3);
+  if (exemplars.length) {
+    lines.push('', '风格样例（只校准结构、段落节奏与语气；禁止复用其中的观点、句子、数字组合、人物和个人经历）：');
+    exemplars.forEach((item, index) => {
+      lines.push(`【样例 ${index + 1}】${item.title.trim() || '未命名'}`);
+      if (item.learn.trim()) lines.push(`学习点：${item.learn.trim()}`);
+      lines.push(truncateForPrompt(item.excerpt.trim(), EXEMPLAR_EXCERPT_MAX_CHARS));
+    });
+  }
   return lines;
 }
 
@@ -162,12 +193,14 @@ export function outlineUserPrompt(
   const skeleton = brief?.outline?.length ? brief.outline : undefined;
   const profileLines = writingProfileLines(profile);
   const profileBlock = profileLines.length ? ['公众号写作要求：', ...profileLines, ''] : [];
+  const styleBlock = styleGuideLines(profile);
   if (skeleton) {
     // 骨架绑模式：给定节名合同（原样保留、顺序不变），LLM 只做补洞。
     return [
       `主题：${topic}`,
       '',
       ...profileBlock,
+      ...styleBlock,
       '用户已定大纲骨架——以下节名必须原样保留（一字不改）、相对顺序不变：',
       ...skeleton.map((section) => `- ${section}`),
       '',
@@ -184,6 +217,7 @@ export function outlineUserPrompt(
     `主题：${topic}`,
     '',
     ...profileBlock,
+    ...styleBlock,
     '请给出一篇文章大纲：',
     '- 5 到 8 个二级标题小节，每节一句话说明要覆盖的具体内容；',
     '- 标注每节计划出现的具体证据类型（数据/命令/对比/亲历细节）；',
@@ -202,6 +236,7 @@ export function draftUserPrompt(
   const lines: string[] = [`主题：${topic}`];
   const profileLines = writingProfileLines(profile);
   if (profileLines.length) lines.push('', '公众号写作要求：', ...profileLines);
+  lines.push(...styleGuideLines(profile));
   if (brief?.title) {
     lines.push(`已定标题：《${brief.title}》——全文围绕这个题目展开；正文仍不出现一级标题（由发布字段承载）。`);
   }
@@ -259,8 +294,8 @@ export function draftUserPrompt(
     '',
     '请成稿：',
     '- Markdown 输出，标题层级从 ## 开始（一级标题由发布字段承载，正文不出现）；',
-    '- 每节包含至少一处具体细节（数字、命令、代码或对比结论）；',
-    '- 段落长短交替，避免连续同长段；',
+    '- 每节至少两处可核验的具体信息（数字、时间、研究细节、场景动作或对比结论），并把这节的机制展开成连续推理，不要只留结论金句；',
+    '- 段落与句式按写作要求里的风格指南展开；未给定风格指南时，段均 2–2.5 句、句长均值 22–24 字，连续 3 段以上单句成段时插入一段展开；',
     '- 正文配图位置以「![描述](图片待生成)」占位，后续管线会替换。',
   );
   if (retryMissingOutline?.length) {
@@ -283,7 +318,10 @@ export function draftUserPrompt(
 
 export function pipelineSystemPrompt(profile?: WritingProfile): string {
   const lines = writingProfileLines(profile);
-  return lines.length ? `${SYSTEM_STYLE}\n${lines.join('\n')}` : SYSTEM_STYLE;
+  const identity = profile && (profile.name.trim() || profile.industry.trim())
+    ? '账号定位与读者由下面的写作要求决定，不要套用其他领域的读者预设或行文习惯。'
+    : '';
+  return lines.length ? [SYSTEM_STYLE, identity, ...lines].filter(Boolean).join('\n') : SYSTEM_STYLE;
 }
 
 // ── 文章改写提示（uiux v0.3 §3；只输出改写文本，无围栏无前后语）──────────────────

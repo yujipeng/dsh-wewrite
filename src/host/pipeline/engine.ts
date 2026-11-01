@@ -38,6 +38,7 @@ export interface GatesRunner {
     mustInclude?: readonly string[];
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
+    styleExemplars?: readonly string[];
     crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }): Promise<{ passed: boolean; report: unknown }>;
 }
@@ -351,9 +352,13 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           patchStep(runId, stepName, { metrics: { chars: draft.length } });
         } else if (stepName === 'gates') {
           const brief = params.brief;
+          const styleExemplars = (deps.writingProfile?.()?.styleExemplars ?? [])
+            .map((item) => item.excerpt.trim())
+            .filter(Boolean);
           const runGates = () =>
             deps.gates.run({
               markdown: draft,
+              ...(styleExemplars.length ? { styleExemplars } : {}),
               ...(brief?.sources?.length
                 ? {
                     sources: brief.sources,
@@ -385,7 +390,11 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
 
           if (deps.editorialReview) {
             let review = await deps.editorialReview
-              .run({ markdown: draft, ...(topic ? { topic } : {}) })
+              .run({
+                markdown: draft,
+                ...(topic ? { topic } : {}),
+                ...(deps.writingProfile?.() ? { profile: deps.writingProfile?.() } : {}),
+              })
               .catch(() => null);
             let judgment = review
               ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)
@@ -433,7 +442,11 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                   throw new PipelineStepError('gates-failed', summary, verdict.report);
                 }
                 review = await deps.editorialReview
-                  .run({ markdown: draft, ...(topic ? { topic } : {}) })
+                  .run({
+                    markdown: draft,
+                    ...(topic ? { topic } : {}),
+                    ...(deps.writingProfile?.() ? { profile: deps.writingProfile?.() } : {}),
+                  })
                   .catch(() => null);
                 judgment = review
                   ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)

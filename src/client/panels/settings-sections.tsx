@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { ConfigView, CredentialsDescriptor } from '@/shared/contract';
-import type { WritingProfile } from '@/shared/schema-base';
+import type { StyleExemplar, WritingProfile } from '@/shared/schema-base';
 import type { WewriteRpc } from '../lib/rpc';
 import { describeRpcFailure } from '../lib/rpc';
 import { Icon } from '../components/Icon';
@@ -13,6 +13,13 @@ import { Icon } from '../components/Icon';
  */
 
 export type SettingsGroup = 'wechat' | 'llm' | 'images' | 'proxy' | 'discipline';
+
+/** 风格基准的编辑上限（与 shared/schema-base.ts 的校验一致）。 */
+const STYLE_GUIDE_MAX = 4000;
+const EXEMPLAR_TITLE_MAX = 120;
+const EXEMPLAR_EXCERPT_MAX = 2000;
+const EXEMPLAR_LEARN_MAX = 200;
+const MAX_EXEMPLARS = 3;
 
 export interface SectionProps {
   config: ConfigView;
@@ -54,7 +61,42 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
     setProfile((current) => ({ ...current, [key]: value }));
   }
 
+  const styleInvalid =
+    profile.styleGuide.length > STYLE_GUIDE_MAX ||
+    profile.styleExemplars.some(
+      (item) =>
+        item.title.length > EXEMPLAR_TITLE_MAX ||
+        item.excerpt.length > EXEMPLAR_EXCERPT_MAX ||
+        item.learn.length > EXEMPLAR_LEARN_MAX,
+    );
+
+  function updateExemplar(index: number, patch: Partial<StyleExemplar>): void {
+    setProfile((current) => ({
+      ...current,
+      styleExemplars: current.styleExemplars.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function addExemplar(): void {
+    setProfile((current) =>
+      current.styleExemplars.length >= MAX_EXEMPLARS
+        ? current
+        : { ...current, styleExemplars: [...current.styleExemplars, { title: '', excerpt: '', learn: '' }] },
+    );
+  }
+
+  function removeExemplar(index: number): void {
+    setProfile((current) => ({
+      ...current,
+      styleExemplars: current.styleExemplars.filter((_, i) => i !== index),
+    }));
+  }
+
   async function saveProfile() {
+    if (styleInvalid) {
+      setProfileSaveState('error');
+      return;
+    }
     setProfileSaveState('saving');
     try {
       const payload: WritingProfile = {
@@ -212,6 +254,67 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
         </section>
 
         <section className="ww-writing-profile__group">
+          <h4 className="ww-writing-profile__group-title">风格基准</h4>
+          <p className="ww-field__hint">
+            风格指南注入大纲、成稿与编辑评审；范文只校准结构与节奏，禁止复用其中的观点、句子和个人经历。
+          </p>
+          <label className="ww-field">
+            <span className="ww-field__label">
+              风格指南 <span className="ww-field__hint">{profile.styleGuide.length}/{STYLE_GUIDE_MAX} 字</span>
+            </span>
+            <textarea
+              className="ww-textarea"
+              rows={8}
+              value={profile.styleGuide}
+              onChange={(event) => updateProfile('styleGuide', event.target.value.slice(0, STYLE_GUIDE_MAX))}
+              placeholder="段落与句长、信息密度、展开顺序、开头与收尾禁区……"
+              aria-label="风格指南"
+            />
+          </label>
+
+          <div className="ww-field">
+            <span className="ww-field__label">
+              范文片段 <span className="ww-field__hint">最多 {MAX_EXEMPLARS} 条，每段 ≤{EXEMPLAR_EXCERPT_MAX} 字</span>
+            </span>
+            {profile.styleExemplars.map((item, index) => (
+              <div className="ww-style-exemplar" key={`exemplar-${index}`}>
+                <div className="ww-style-exemplar__head">
+                  <span>范文 {index + 1}</span>
+                  <Button variant="outline" size="sm" onClick={() => removeExemplar(index)}>
+                    删除
+                  </Button>
+                </div>
+                <Input
+                  value={item.title}
+                  onChange={(event) => updateExemplar(index, { title: event.target.value.slice(0, EXEMPLAR_TITLE_MAX) })}
+                  placeholder="来源/标题（可空）"
+                  aria-label={`范文 ${index + 1} 标题`}
+                />
+                <textarea
+                  className="ww-textarea"
+                  rows={6}
+                  value={item.excerpt}
+                  onChange={(event) => updateExemplar(index, { excerpt: event.target.value.slice(0, EXEMPLAR_EXCERPT_MAX) })}
+                  placeholder="粘贴一段范文原文（只学结构与节奏）"
+                  aria-label={`范文 ${index + 1} 节选`}
+                />
+                <Input
+                  value={item.learn}
+                  onChange={(event) => updateExemplar(index, { learn: event.target.value.slice(0, EXEMPLAR_LEARN_MAX) })}
+                  placeholder="学习点：这段要学什么（可空）"
+                  aria-label={`范文 ${index + 1} 学习点`}
+                />
+              </div>
+            ))}
+            {profile.styleExemplars.length < MAX_EXEMPLARS ? (
+              <Button variant="outline" size="sm" onClick={addExemplar}>
+                添加范文
+              </Button>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="ww-writing-profile__group">
           <h4 className="ww-writing-profile__group-title">配图</h4>
           <label className="ww-field">
             <span className="ww-field__label">封面风格 <span className="ww-field__hint">可选，供配图参考</span></span>
@@ -228,7 +331,8 @@ export function WechatSection({ config, rpc, onSaved }: SectionProps) {
 
         <div className="ww-writing-profile__footer">
           <SaveState state={profileSaveState} />
-          <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProfile()} disabled={profileSaveState === 'saving'}>
+          {styleInvalid ? <span className="ww-field__error">风格指南或范文超出长度上限</span> : null}
+          <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProfile()} disabled={profileSaveState === 'saving' || styleInvalid}>
             保存写作要求
           </Button>
         </div>

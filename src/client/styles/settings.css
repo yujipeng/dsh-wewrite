@@ -353,6 +353,23 @@
   letter-spacing: 0.04em;
 }
 
+.ww-style-exemplar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  padding: var(--ww-space-3);
+  border: var(--ww-border-width) solid var(--ww-border);
+  border-radius: var(--ww-radius-md);
+  background: var(--ww-bg);
+}
+.ww-style-exemplar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--ww-text-sm);
+  color: var(--ww-fg-secondary);
+}
+
 .ww-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ww-space-3); }
 .ww-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ww-space-3); }
 .ww-writing-profile__wide-left { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }

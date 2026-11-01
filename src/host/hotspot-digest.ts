@@ -234,7 +234,7 @@ export function extractOriginUrl(html: string, baseUrl: string): string | undefi
 
 function digestItemSystemPrompt(): string {
   return [
-    '你是一位技术公众号的选题编辑，替作者快速判断一条热榜值不值得写。',
+    '你是一位公众号的选题编辑，替作者快速判断一条热榜值不值得写。',
     '只输出中文纯文本，不用任何 Markdown 记号；不复述原文，直接按用户给定的行结构输出。',
     '要点必须落到具体事实、数字或结论，不写套话与空转词。',
   ].join('');

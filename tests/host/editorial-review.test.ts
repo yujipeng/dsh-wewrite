@@ -3,7 +3,11 @@ import {
   DEFAULT_REVIEW_THRESHOLD,
   judgeEditorialReview,
   parseEditorialReview,
+  reviewArticle,
 } from '@/host/pipeline/steps/editorial-review';
+import type { PipelineLlm } from '@/host/pipeline/llm';
+import type { HostLogger } from '@/host/platform';
+import type { WritingProfile } from '@/shared/schema-base';
 
 const validJson = (overrides: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -106,5 +110,55 @@ describe('judgeEditorialReview', () => {
       '2026-10-30T00:00:00.000Z',
     );
     expect(review?.mechanisms).toEqual(['沉没成本', '损失厌恶']);
+  });
+});
+
+describe('reviewArticle 风格基线注入', () => {
+  const logger: HostLogger = { info() {}, warn() {}, error() {} };
+  const profile: WritingProfile = {
+    name: '社会现象心理分析',
+    industry: '心理学',
+    topics: [],
+    tone: '',
+    voice: '',
+    wordCount: '',
+    contentStyle: '',
+    persona: '',
+    blacklistWords: [],
+    blacklistTopics: [],
+    coverStyle: '',
+    styleGuide: '每段 2–2.5 句；每千字数字 ≥25。',
+    styleExemplars: [{ title: '用事实开场', excerpt: '这事得先从一个数字说起。', learn: '事实开场' }],
+  };
+
+  async function captureUserPrompt(styleProfile?: WritingProfile): Promise<string> {
+    let user = '';
+    const llm = {
+      stream(options: Record<string, unknown>) {
+        const messages = options.messages as Array<{ content: Array<{ text: string }> }>;
+        user = messages[0]?.content[0]?.text ?? '';
+        return (async function* () {
+          yield { type: 'finish', reason: { kind: 'stop' } };
+        })();
+      },
+    } as unknown as PipelineLlm;
+    await reviewArticle(
+      { llm, provider: 'p', model: 'm', timeoutMs: 1000, logger, nowIso: () => '2026-11-01T00:00:00.000Z' },
+      { markdown: '正文', ...(styleProfile ? { profile: styleProfile } : {}) },
+    );
+    return user;
+  }
+
+  it('提示词注入风格指南、范文与禁止复用声明', async () => {
+    const user = await captureUserPrompt(profile);
+    expect(user).toContain('本账号风格基线');
+    expect(user).toContain('每段 2–2.5 句');
+    expect(user).toContain('禁止复用');
+    expect(user).toContain('每千字数字密度');
+  });
+
+  it('没有风格基线时不注入基线块', async () => {
+    const user = await captureUserPrompt();
+    expect(user).not.toContain('本账号风格基线');
   });
 });
