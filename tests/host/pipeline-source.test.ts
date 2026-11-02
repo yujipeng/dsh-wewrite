@@ -4,6 +4,7 @@ import { RunRecordSchema } from '@/host/domain';
 import type { RunParams } from '@/shared/contract';
 import { createPipelineEngine, type PipelineLlm, type RunStore } from '@/host/pipeline/engine';
 import { createHttpSourceFetcher, extractReadableText, SourceFetchError, type SourceFetcher } from '@/host/pipeline/steps/source';
+import type { SourceSearcher } from '@/host/pipeline/steps/source-search';
 
 /**
  * 来源入管线（v0.5）：
@@ -56,7 +57,7 @@ const okStream = (text: string) =>
     yield { type: 'finish' as const, reason: { kind: 'stop' as const } };
   })();
 
-function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string } = {}) {
+function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string; sourceSearch?: SourceSearcher } = {}) {
   const llmStream = vi.fn(async (_options: Record<string, unknown>) => okStream(options.llmText ?? '生成的成稿文本'));
   const store = new MemoryRunStore();
   const engine = createPipelineEngine({
@@ -65,6 +66,9 @@ function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string }
     sourceFetcher:
       options.sourceFetcher ??
       ({ fetch: vi.fn(async (url: string) => ({ url, title: '罗技小狗表情包广告引争议', text: '原文正文'.repeat(80), chars: 320 })) } as SourceFetcher),
+    sourceSearch:
+      options.sourceSearch ??
+      ({ search: async () => [], resolve: async (url: string) => url } as SourceSearcher),
     gates: { run: async () => ({ passed: true, report: {} }) },
     renderer: { convert: () => '<section>x</section>' },
     images: { generate: async () => ({ bodyImageIds: [] }) },
@@ -162,5 +166,54 @@ describe('管线 source 步', () => {
     const sourceStep = run?.steps.find((step) => step.name === 'source');
     expect(sourceStep?.status).toBe('succeeded');
     expect((sourceStep?.metrics as { skipped?: string } | undefined)?.skipped).toBe('no-source');
+  });
+});
+
+describe('热搜聚合页 → 媒体报道', () => {
+  it('微博热搜页：按标题检索媒体报道，解析直链后抓正文', async () => {
+    const search = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户，客服回应', url: 'https://weixin.sogou.com/link?url=abc', summary: '', publisher: '潇湘晨报' },
+      ]),
+      resolve: vi.fn(async () => 'https://mp.weixin.qq.com/s/abc'),
+    };
+    const fetcher = {
+      fetch: vi.fn(async (url: string) => ({ url, title: '罗技广告再被指侮辱用户', text: '小狗表情包'.repeat(60), chars: 300 })),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(search.search).toHaveBeenCalledWith('罗技广告再被指侮辱用户', 5, expect.anything());
+    expect(search.resolve).toHaveBeenCalledWith('https://weixin.sogou.com/link?url=abc', expect.anything());
+    expect(fetcher.fetch).toHaveBeenCalledWith('https://mp.weixin.qq.com/s/abc', expect.anything());
+    const sourceStep = run?.steps.find((step) => step.name === 'source');
+    expect((sourceStep?.metrics as { searched?: boolean } | undefined)?.searched).toBe(true);
+  });
+
+  it('检索不到报道 → 仍暂停写稿（source-unavailable）', async () => {
+    const search = {
+      search: vi.fn(async () => []),
+      resolve: vi.fn(async (url: string) => url),
+    };
+    const { engine, store, llmStream } = makeEngine({ sourceSearch: search });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.code).toBe('source-unavailable');
+    expect(run?.error?.message).toContain('检索不到');
+    expect(llmStream).toHaveBeenCalledTimes(0);
   });
 });

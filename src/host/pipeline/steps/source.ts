@@ -36,6 +36,24 @@ const MAX_CONTENT_CHARS = 20000;
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/** 普通浏览器 UA；微信公众号在部分网络下会返回「环境异常」验证页。 */
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+/** 微信 iOS WebView UA：带 MicroMessenger 可让微信服务器按「App 内打开」放行正文。 */
+const WECHAT_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.49(0x18003123) NetType/WIFI Language/zh_CN';
+
+interface FetchAttempt {
+  readonly userAgent: string;
+  readonly referer?: string;
+}
+
+/** 抓取降级链：先普通 UA；只有正文过短（验证页/空壳）才换微信 UA + 微信 Referer 重试。 */
+const FETCH_ATTEMPTS: readonly FetchAttempt[] = [
+  { userAgent: BROWSER_UA },
+  { userAgent: WECHAT_UA, referer: 'https://mp.weixin.qq.com/' },
+];
+
 const ENTITY_MAP: Readonly<Record<string, string>> = {
   amp: '&',
   lt: '<',
@@ -52,7 +70,7 @@ const ENTITY_MAP: Readonly<Record<string, string>> = {
   ndash: '–',
 };
 
-function decodeEntities(input: string): string {
+export function decodeEntities(input: string): string {
   return input.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
     const lower = entity.toLowerCase();
     if (lower.startsWith('#x')) {
@@ -67,7 +85,7 @@ function decodeEntities(input: string): string {
   });
 }
 
-function stripTags(html: string): string {
+export function stripTags(html: string): string {
   return decodeEntities(
     html
       .replace(/<(nav|header|footer|aside|form|svg|iframe|figure)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
@@ -119,52 +137,72 @@ export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}):
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
+  const fetchOnce = async (url: string, attempt: FetchAttempt, signal: AbortSignal | undefined): Promise<SourceDocument> => {
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      let response: Response;
+      try {
+        response = await fetchFn(url, {
+          redirect: 'follow',
+          signal: controller.signal,
+          headers: {
+            'user-agent': attempt.userAgent,
+            accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
+            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            ...(attempt.referer ? { referer: attempt.referer } : {}),
+          },
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw new SourceFetchError('timeout', `抓取来源超时（>${timeoutMs}ms）：${url}`);
+        }
+        throw new SourceFetchError(
+          'network',
+          `抓取来源失败：${error instanceof Error ? error.message : String(error)}（${url}）`,
+        );
+      }
+      if (!response.ok) {
+        throw new SourceFetchError('http-status', `来源返回 HTTP ${response.status}：${url}`);
+      }
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType && !/text\/html|application\/xhtml|text\/plain|application\/json/i.test(contentType)) {
+        throw new SourceFetchError('unsupported-type', `来源不是可读文本（${contentType}）：${url}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.byteLength > maxBytes) {
+        throw new SourceFetchError('too-large', `来源页面过大（>${maxBytes} 字节），未做正文提取：${url}`);
+      }
+      const { title, text } = extractReadableText(new TextDecoder('utf-8').decode(buffer));
+      if (text.length < MIN_CONTENT_CHARS) {
+        throw new SourceFetchError('empty-content', `来源正文过短（${text.length} 字符），可能被登录墙/反爬拦截：${url}`);
+      }
+      return { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', forwardAbort);
+    }
+  };
+
   return {
     async fetch(url, signal) {
-      const controller = new AbortController();
-      const forwardAbort = () => controller.abort();
-      signal?.addEventListener('abort', forwardAbort, { once: true });
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        let response: Response;
+      let lastError: SourceFetchError | undefined;
+      for (const attempt of FETCH_ATTEMPTS) {
         try {
-          response = await fetchFn(url, {
-            redirect: 'follow',
-            signal: controller.signal,
-            headers: {
-              'user-agent': 'Mozilla/5.0 (compatible; dsh-wewrite/0.5; +https://github.com/jerryjiao/dsh-wewrite)',
-              accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
-            },
-          });
+          return await fetchOnce(url, attempt, signal);
         } catch (error) {
-          if (controller.signal.aborted) {
-            throw new SourceFetchError('timeout', `抓取来源超时（>${timeoutMs}ms）：${url}`);
-          }
-          throw new SourceFetchError(
-            'network',
-            `抓取来源失败：${error instanceof Error ? error.message : String(error)}（${url}）`,
-          );
+          const normalized =
+            error instanceof SourceFetchError
+              ? error
+              : new SourceFetchError('network', `抓取来源失败：${error instanceof Error ? error.message : String(error)}（${url}）`);
+          lastError = normalized;
+          // 只有「页面可读但正文过短」才值得换微信 UA 重试；HTTP/网络/类型错误重试无意义。
+          if (normalized.code !== 'empty-content') throw normalized;
         }
-        if (!response.ok) {
-          throw new SourceFetchError('http-status', `来源返回 HTTP ${response.status}：${url}`);
-        }
-        const contentType = response.headers.get('content-type') ?? '';
-        if (contentType && !/text\/html|application\/xhtml|text\/plain|application\/json/i.test(contentType)) {
-          throw new SourceFetchError('unsupported-type', `来源不是可读文本（${contentType}）：${url}`);
-        }
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.byteLength > maxBytes) {
-          throw new SourceFetchError('too-large', `来源页面过大（>${maxBytes} 字节），未做正文提取：${url}`);
-        }
-        const { title, text } = extractReadableText(new TextDecoder('utf-8').decode(buffer));
-        if (text.length < MIN_CONTENT_CHARS) {
-          throw new SourceFetchError('empty-content', `来源正文过短（${text.length} 字符），可能被登录墙/反爬拦截：${url}`);
-        }
-        return { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
-      } finally {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', forwardAbort);
       }
+      throw lastError ?? new SourceFetchError('empty-content', `来源正文过短：${url}`);
     },
   };
 }

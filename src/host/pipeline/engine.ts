@@ -11,6 +11,7 @@ import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type LaunchBriefForPrompt, type PipelineLlm } from './llm';
 import { isSourceUrlVisible, type GateClaim } from './steps/gates';
 import { createHttpSourceFetcher, type SourceDocument, type SourceFetcher } from './steps/source';
+import { createSogouWechatSearcher, isAggregatorUrl, pickBestHit, type SourceSearcher } from './steps/source-search';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 import type { ImagePromptPlan } from '../images/plan';
 
@@ -74,6 +75,8 @@ export interface PipelineDeps {
   readonly topicSource?: TopicSource;
   /** 来源原文抓取器（默认真实 HTTP 抓取；测试可注入桩）。 */
   readonly sourceFetcher?: SourceFetcher;
+  /** 热搜聚合页的媒体报道检索器（默认搜狗微信；测试可注入桩）。 */
+  readonly sourceSearch?: SourceSearcher;
   /** 外部请求传输层（抓取来源用；缺省全局 fetch）。 */
   readonly fetchImpl?: typeof fetch;
   readonly gates: GatesRunner;
@@ -247,6 +250,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     /** source 步抓到的原文（仅内存使用；run 记录只留 URL/标题/字数）。 */
     const sourceDocs: SourceDocument[] = [];
     const sourceFetcher = deps.sourceFetcher ?? createHttpSourceFetcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
+    const sourceSearch = deps.sourceSearch ?? createSogouWechatSearcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
     /** 供 outline/draft 注入原文；source 步未跑或无来源时回退原 brief。 */
     const promptBrief = (): LaunchBriefForPrompt | undefined => {
       if (!params.brief) return undefined;
@@ -299,12 +303,39 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             patchStep(runId, stepName, { metrics: { skipped: 'no-source' } });
           } else {
             const failures: string[] = [];
+            const searchTitle = params.brief?.sourceTitle?.trim() || topic;
+            let searched = false;
             for (const url of sources) {
               if (signal.aborted) throwAborted();
-              try {
-                sourceDocs.push(await sourceFetcher.fetch(url, signal));
-              } catch (error) {
-                failures.push(error instanceof Error ? error.message : String(error));
+              const candidates: string[] = [];
+              if (isAggregatorUrl(url)) {
+                // 热搜/搜索页不是原文：按标题检索媒体报道，再抓 mp.weixin.qq.com 正文。
+                searched = true;
+                try {
+                  const hits = await sourceSearch.search(searchTitle, 5, signal);
+                  const best = pickBestHit(hits, searchTitle);
+                  if (!best) {
+                    failures.push(`来源是热搜聚合页，按标题「${searchTitle}」检索不到媒体报道：${url}`);
+                  } else {
+                    candidates.push(await sourceSearch.resolve(best.url, signal));
+                    const second = hits.find((hit) => hit.url !== best.url);
+                    if (second) candidates.push(await sourceSearch.resolve(second.url, signal));
+                  }
+                } catch (error) {
+                  failures.push(`热搜原文检索失败：${error instanceof Error ? error.message : String(error)}（${url}）`);
+                }
+              } else {
+                candidates.push(url);
+              }
+              for (const candidate of candidates) {
+                if (signal.aborted) throwAborted();
+                try {
+                  const doc = await sourceFetcher.fetch(candidate, signal);
+                  if (!sourceDocs.some((existing) => existing.url === doc.url)) sourceDocs.push(doc);
+                  break;
+                } catch (error) {
+                  failures.push(error instanceof Error ? error.message : String(error));
+                }
               }
             }
             if (!sourceDocs.length) {
@@ -317,6 +348,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             }
             patchStep(runId, stepName, {
               metrics: {
+                ...(searched ? { searched: true } : {}),
                 fetched: sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, chars: doc.chars })),
                 ...(failures.length ? { failed: failures.map((message) => message.slice(0, 200)) } : {}),
               },
