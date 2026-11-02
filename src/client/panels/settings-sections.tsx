@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { ConfigView, CredentialsDescriptor } from '@/shared/contract';
+import type { ConfigView } from '@/shared/contract';
 import type { StyleExemplar, WritingProfile } from '@/shared/schema-base';
 import type { WewriteRpc } from '../lib/rpc';
 import { describeRpcFailure } from '../lib/rpc';
@@ -32,18 +32,9 @@ export function SaveState({ state }: { state: 'idle' | 'saving' | 'saved' | 'err
   return <span className={state === 'error' ? 'ww-settings__save ww-settings__save--error' : 'ww-settings__save'}>{state === 'saving' ? '保存中…' : state === 'saved' ? '已保存' : '保存失败，重试'}</span>;
 }
 
-export function ConfiguredBadge({ descriptor }: { descriptor: CredentialsDescriptor | undefined }) {
-  if (!descriptor) return null;
-  return descriptor.configured ? (
-    <span className="ww-badge ww-badge--ok">
-      <Icon name="check" size={16} /> 已配置
-    </span>
-  ) : (
-    <span className="ww-badge">
-      <Icon name="circle-alert" size={16} /> 未配置
-    </span>
-  );
-}
+import { ConfiguredBadge } from '../components/ConfiguredBadge';
+
+export { ConfiguredBadge };
 
 /** 公众号接入：AppID/Secret/作者名（代理与测试在 API 代理组，避免重复表单）。 */
 export function WechatSection({ config, rpc, onSaved }: SectionProps) {

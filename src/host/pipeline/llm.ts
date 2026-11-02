@@ -137,6 +137,24 @@ function truncateForPrompt(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…（已截断）` : text;
 }
 
+/** 来源原文注入预算（每条）：足够覆盖新闻主体，又不挤占成稿提示词空间。 */
+const SOURCE_EXCERPT_MAX_CHARS = 3000;
+
+/** 新闻原文块：写稿的唯一事实依据；原文没有的时间/人物/事件/数字/引语禁止出现。 */
+function sourceExcerptLines(brief?: LaunchBriefForPrompt): string[] {
+  const docs = brief?.sourceExcerpts ?? [];
+  if (!docs.length) return [];
+  const lines = [
+    '',
+    '新闻原文（本次写作的唯一事实依据——只能写原文里有的事实；原文没有的时间、人物、事件、数字、引语一律不得出现）：',
+  ];
+  docs.forEach((doc, index) => {
+    lines.push(`【原文 ${index + 1}】${doc.title?.trim() || '未命名'} ${doc.url}`);
+    lines.push(truncateForPrompt(doc.text.trim(), SOURCE_EXCERPT_MAX_CHARS));
+  });
+  return lines;
+}
+
 /**
  * 风格基准与范文块（I-24）：只校准结构与节奏，空值不注入。
  * 范文必须带「禁止复用」声明；超长内容按注入预算截断。
@@ -166,6 +184,10 @@ export interface LaunchBriefForPrompt {
   readonly approach?: string;
   readonly outline?: readonly string[];
   readonly sources?: readonly string[];
+  readonly sourceTitle?: string;
+  readonly sourceDigest?: string;
+  /** 管线抓取到的新闻原文（仅在 source 步成功后注入；事实只能来自这里）。 */
+  readonly sourceExcerpts?: readonly { readonly url: string; readonly title?: string; readonly text: string }[];
   readonly thesis?: string;
   readonly boundary?: string;
   readonly counterpoint?: string;
@@ -201,6 +223,7 @@ export function outlineUserPrompt(
       '',
       ...profileBlock,
       ...styleBlock,
+      ...sourceExcerptLines(brief),
       '用户已定大纲骨架——以下节名必须原样保留（一字不改）、相对顺序不变：',
       ...skeleton.map((section) => `- ${section}`),
       '',
@@ -218,6 +241,7 @@ export function outlineUserPrompt(
     '',
     ...profileBlock,
     ...styleBlock,
+    ...sourceExcerptLines(brief),
     '请给出一篇文章大纲：',
     '- 5 到 8 个二级标题小节，每节一句话说明要覆盖的具体内容；',
     '- 标注每节计划出现的具体证据类型（数据/命令/对比/亲历细节）；',
@@ -266,6 +290,7 @@ export function draftUserPrompt(
   if (brief?.mustAvoid?.length) {
     lines.push('', '不得出现的内容（正文禁止出现）：', ...brief.mustAvoid.map((item) => `- ${item}`));
   }
+  lines.push(...sourceExcerptLines(brief));
   if (brief?.claims?.length) {
     lines.push(
       '',

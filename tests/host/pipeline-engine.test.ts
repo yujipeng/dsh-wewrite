@@ -18,7 +18,7 @@ import {
  * 本文件钉定 src/host/pipeline/engine.ts 的消费面：
  * - createPipelineEngine(deps) -> { start(opts): Promise<runId>, cancel(runId), resumeInterrupted() }
  * - start() 在 run 到达终态时 resolve（RPC 层可不等 await 立即回 runId）
- * - 步骤序列固定：topic -> outline -> draft -> gates -> render -> images
+ * - 步骤序列固定：topic -> source -> outline -> draft -> gates -> render -> images
  * - 未执行步骤 status='pending'；失败步骤带 error{code,message}
  */
 
@@ -104,14 +104,14 @@ function makeEngine(deps: ReturnType<typeof makeDeps>): PipelineEngine {
   return createPipelineEngine(deps);
 }
 
-describe('PIPELINE_STEP_NAMES（架构 §3 管线六步）', () => {
-  it('步骤序列精确为 topic/outline/draft/gates/render/images', () => {
-    expect([...PIPELINE_STEP_NAMES]).toEqual(['topic', 'outline', 'draft', 'gates', 'render', 'images']);
+describe('PIPELINE_STEP_NAMES（架构 §3 管线步骤）', () => {
+  it('步骤序列精确为 topic/source/outline/draft/gates/render/images', () => {
+    expect([...PIPELINE_STEP_NAMES]).toEqual(['topic', 'source', 'outline', 'draft', 'gates', 'render', 'images']);
   });
 });
 
 describe('run 生命周期：queued -> running -> 终态', () => {
-  it('happy path：六步全 succeeded，run succeeded，llm 调 outline+draft 两次', async () => {
+  it('happy path：七步全 succeeded，run succeeded，llm 调 outline+draft 两次', async () => {
     const deps = makeDeps();
     const engine = makeEngine(deps);
 

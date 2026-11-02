@@ -78,6 +78,7 @@
 .ww-field { display: flex; flex-direction: column; gap: var(--ww-space-1); min-width: 0; }
 .ww-field__label { font-size: var(--ww-text-sm); color: var(--ww-fg-secondary); display: flex; gap: var(--ww-space-2); align-items: baseline; flex-wrap: wrap; }
 .ww-field__hint { font-size: var(--ww-text-xs); color: var(--ww-fg-caption); font-weight: var(--ww-weight-regular); }
+.ww-field__hint--error { color: var(--ww-danger); }
 .ww-field__error { font-size: var(--ww-text-xs); color: var(--ww-danger); }
 .ww-field__note { margin: 0; font-size: var(--ww-text-sm); color: var(--ww-fg-secondary); }
 .ww-field-row { display: flex; gap: var(--ww-space-3); flex-wrap: wrap; }

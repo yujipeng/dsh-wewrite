@@ -131,6 +131,8 @@ async function dispatch(service: WeWriteService, endpoint: RpcEndpoint, payload:
       return service.setConfig(payload as unknown as Record<string, unknown>);
     case 'credentials/set':
       return service.setCredential(String(payload.ref), String(payload.value));
+    case 'credentials/unset':
+      return service.unsetCredential(String(payload.ref));
     case 'credentials/describe':
       return service.describeCredentials();
     case 'llm/options':

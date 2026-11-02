@@ -2,13 +2,13 @@ import type { RunDetailStep } from './meta';
 import { cardT, type CardT } from './card-text';
 
 /**
- * 六段分轨（uiux §1.1）：6 段 × 20px × 4px（--ww-stage-seg-w/--ww-stage-track-h）。
+ * 七段分轨（uiux §1.1）：7 段 × 20px × 4px（--ww-stage-seg-w/--ww-stage-track-h）。
  * 段色：done=fg-secondary / current=accent（全卡唯一 accent 位）/ pending=border /
  * failed=danger。分轨永不单独达意——右侧/下方必有「n/6 · 阶段名」文字 +
  * 全阶段标签（状态不以颜色为唯一载体）。run-tool-card 与 commandview 共用。
  */
 
-export const STAGE_KEYS = ['topic', 'outline', 'draft', 'gates', 'render', 'images'] as const;
+export const STAGE_KEYS = ['topic', 'source', 'outline', 'draft', 'gates', 'render', 'images'] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
 
 export function stageLabel(t: CardT, stage: string): string {

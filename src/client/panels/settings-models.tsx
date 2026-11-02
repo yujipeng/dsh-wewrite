@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Menu } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, Menu } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { ImageProviderConfig } from '@/shared/contract';
 import { CREDENTIAL_REFS, DEFAULT_PROVIDER_MODELS, IMAGE_PROVIDER_IDS } from '@/shared/image-provider-ids';
 import type { ImageProviderId } from '@/shared/image-provider-ids';
 import { CodeChip } from '../components/bits';
 import { Icon } from '../components/Icon';
+import { ImageProviderEditor, type ImageProviderDraft } from './image-provider-editor';
 import { ConfiguredBadge, MenuTrigger, SaveState, type SectionProps } from './settings-sections';
 
 /**
@@ -94,10 +95,12 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<ImageProviderId | null>(null);
-  const [draftKey, setDraftKey] = useState('');
-  const [draftModel, setDraftModel] = useState('');
-  const [draftBaseUrl, setDraftBaseUrl] = useState('');
-  const [providerSaveState, setProviderSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // 设置页可能在别处（另一个窗口 / 旧快照）被改过：链始终跟随服务端真值，
+  // 避免用陈旧 chain 覆盖掉刚添加的供应商。
+  useEffect(() => {
+    setChain(config.imageProviders);
+  }, [config.imageProviders]);
 
   const remaining = useMemo(
     () => IMAGE_PROVIDER_IDS.filter((id) => !chain.some((item) => item.providerId === id)),
@@ -124,41 +127,31 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
     void save(next);
   }
 
-  /** 展开/收起单家供应商的配置行；每次打开重置草稿（API Key 不回显）。 */
-  function openEditor(item: ImageProviderConfig) {
-    const providerId = item.providerId as ImageProviderId;
-    setEditingId((current) => (current === providerId ? null : providerId));
-    setDraftKey('');
-    setDraftModel(item.model ?? DEFAULT_PROVIDER_MODELS[providerId] ?? '');
-    setDraftBaseUrl(item.baseUrl ?? '');
-    setProviderSaveState('idle');
+  function toggleEditor(item: ImageProviderConfig) {
+    setEditingId((current) => (current === item.providerId ? null : item.providerId));
   }
 
   /** 保存单家：API Key 走 credentials/set（空值不覆盖），model/baseUrl 走 config/set。 */
-  async function saveProvider(item: ImageProviderConfig) {
-    setProviderSaveState('saving');
-    try {
-      const key = draftKey.trim();
-      if (key) await rpc.call('credentials/set', { ref: item.credentialRef, value: key });
-      const model = draftModel.trim();
-      const baseUrl = draftBaseUrl.trim();
-      const next = chain.map((entry) => {
-        if (entry.providerId !== item.providerId) return entry;
-        return {
-          providerId: entry.providerId,
-          credentialRef: entry.credentialRef,
-          ...(model ? { model } : {}),
-          ...(baseUrl ? { baseUrl } : {}),
-        };
-      });
-      await rpc.call('config/set', { imageProviders: next });
-      setChain(next);
-      setDraftKey('');
-      setProviderSaveState('saved');
-      await onSaved();
-    } catch {
-      setProviderSaveState('error');
-    }
+  async function saveProvider(item: ImageProviderConfig, draft: ImageProviderDraft): Promise<void> {
+    if (draft.key) await rpc.call('credentials/set', { ref: item.credentialRef, value: draft.key });
+    const next = chain.map((entry) => {
+      if (entry.providerId !== item.providerId) return entry;
+      return {
+        providerId: entry.providerId,
+        credentialRef: entry.credentialRef,
+        ...(draft.model ? { model: draft.model } : {}),
+        ...(draft.baseUrl ? { baseUrl: draft.baseUrl } : {}),
+      };
+    });
+    await rpc.call('config/set', { imageProviders: next });
+    setChain(next);
+    await onSaved();
+  }
+
+  /** 清除误存/过期的 Key：只走 credentials/unset，不动链配置。 */
+  async function clearProvider(item: ImageProviderConfig): Promise<void> {
+    await rpc.call('credentials/unset', { ref: item.credentialRef });
+    await onSaved();
   }
 
   return (
@@ -172,7 +165,7 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
             <span className="ww-provider__model">{item.model ?? DEFAULT_PROVIDER_MODELS[item.providerId as ImageProviderId] ?? '默认模型'}</span>
             <ConfiguredBadge descriptor={config.credentials[item.credentialRef]} />
             <span className="ww-provider__ops">
-              <button type="button" className="ww-icon-btn" aria-label={`配置 ${item.providerId}`} aria-expanded={editingId === item.providerId} onClick={() => openEditor(item)}>
+              <button type="button" className="ww-icon-btn" aria-label={`配置 ${item.providerId}`} aria-expanded={editingId === item.providerId} onClick={() => toggleEditor(item)}>
                 <Icon name="key-round" size={16} />
               </button>
               <button type="button" className="ww-icon-btn" aria-label={`上移 ${item.providerId}`} onClick={() => move(index, -1)} disabled={index === 0}>
@@ -186,44 +179,13 @@ export function ImagesSection({ config, rpc, onSaved }: SectionProps) {
               </button>
             </span>
             {editingId === item.providerId ? (
-              <div className="ww-provider__editor">
-                <div className="ww-field-row">
-                  <div className="ww-field">
-                    <span className="ww-field__label">API Key <span className="ww-field__hint">仅存本机（credentials 存储，不回显）</span></span>
-                    <Input
-                      type="password"
-                      value={draftKey}
-                      onChange={(event) => setDraftKey(event.target.value)}
-                      placeholder={config.credentials[item.credentialRef]?.configured ? '已配置——输入新值可覆盖' : '输入 API Key'}
-                      aria-label={`${item.providerId} API Key`}
-                    />
-                  </div>
-                  <div className="ww-field">
-                    <span className="ww-field__label">模型</span>
-                    <Input
-                      value={draftModel}
-                      onChange={(event) => setDraftModel(event.target.value)}
-                      placeholder={DEFAULT_PROVIDER_MODELS[item.providerId as ImageProviderId] ?? '默认模型'}
-                      aria-label={`${item.providerId} 模型`}
-                    />
-                  </div>
-                  <div className="ww-field">
-                    <span className="ww-field__label">Base URL <span className="ww-field__hint">可选</span></span>
-                    <Input
-                      value={draftBaseUrl}
-                      onChange={(event) => setDraftBaseUrl(event.target.value)}
-                      placeholder="默认官方地址"
-                      aria-label={`${item.providerId} Base URL`}
-                    />
-                  </div>
-                </div>
-                <div className="ww-settings__row">
-                  <Button variant="primary" size="sm" className="ww-btn-accent" onClick={() => void saveProvider(item)} disabled={providerSaveState === 'saving'}>
-                    保存
-                  </Button>
-                  <SaveState state={providerSaveState} />
-                </div>
-              </div>
+              <ImageProviderEditor
+                key={item.providerId}
+                item={item}
+                descriptor={config.credentials[item.credentialRef]}
+                onSave={(draft) => saveProvider(item, draft)}
+                onClear={() => clearProvider(item)}
+              />
             ) : null}
           </li>
         ))}

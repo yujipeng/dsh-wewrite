@@ -125,6 +125,24 @@ describe('AC-5 凭据 write-only：service 层（qa-test-plan §10-1 补齐）',
     expect(credentials.calls.resolve).toEqual([]);
   });
 
+  it('描述符覆盖全部图片供应商：qwen_image 与链中自定义 credentialRef 都回显', async () => {
+    const { service } = await makeService();
+    await service.setConfig({
+      imageProviders: [
+        { providerId: 'qwen_image', credentialRef: 'WEWRITE_IMG_QWEN_IMAGE' },
+        { providerId: 'openai', credentialRef: 'MY_OPENAI_KEY' },
+      ],
+    });
+    await service.setCredential('WEWRITE_IMG_QWEN_IMAGE', 'sk-qwen');
+
+    const config = await service.getConfig();
+    expect(config.credentials['WEWRITE_IMG_QWEN_IMAGE']).toEqual({ configured: true, writable: true });
+    expect(config.credentials['MY_OPENAI_KEY']).toEqual({ configured: false, writable: true });
+
+    const snapshot = await service.snapshot();
+    expect(snapshot.config.credentials['WEWRITE_IMG_QWEN_IMAGE']).toEqual({ configured: true, writable: true });
+  });
+
   it('unset 后描述符回落 configured=false（回显面与存储面一致）', async () => {
     const { service, credentials } = await makeService();
     await service.setCredential('WEWRITE_WECHAT_SECRET', WECHAT_SECRET);
@@ -133,5 +151,44 @@ describe('AC-5 凭据 write-only：service 层（qa-test-plan §10-1 补齐）',
     const config = await service.getConfig();
 
     expect(config.credentials['WEWRITE_WECHAT_SECRET']).toEqual({ configured: false, writable: true });
+  });
+
+  it('unsetCredential 恰好一次经 credentials.unset 删除，返回 {ok:true}', async () => {
+    const { service, credentials } = await makeService();
+    await service.setCredential('WEWRITE_IMG_QWEN_IMAGE', 'sk-qwen');
+
+    const result = await service.unsetCredential('WEWRITE_IMG_QWEN_IMAGE');
+
+    expect(result).toEqual({ ok: true });
+    expect(credentials.calls.unset).toEqual(['WEWRITE_IMG_QWEN_IMAGE']);
+    expect((await service.getConfig()).credentials['WEWRITE_IMG_QWEN_IMAGE']).toEqual({ configured: false, writable: true });
+  });
+
+  it('清除微信 secret 后进程内缓存同步失效（下一次诊断不再携带旧值）', async () => {
+    const domain = new MemoryDomain();
+    const credentials = makeCredentials();
+    const llm = makeLlm();
+    const requested: string[] = [];
+    const service = await WeWriteService.open({
+      domain,
+      credentials: credentials.service,
+      llm: { stream: llm.stream },
+      now: () => new Date('2026-08-18T12:00:00.000Z'),
+      logger: silentLogger,
+      fetchImpl: async (input) => {
+        requested.push(String(input));
+        return new Response(JSON.stringify({ access_token: 'token', expires_in: 7200 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    await service.setConfig({ wechatAppId: 'wx-app' });
+    await service.setCredential('WEWRITE_WECHAT_SECRET', WECHAT_SECRET);
+    await service.unsetCredential('WEWRITE_WECHAT_SECRET');
+
+    await service.diagnoseWeChat();
+
+    expect(requested.join('\n')).not.toContain(WECHAT_SECRET);
   });
 });

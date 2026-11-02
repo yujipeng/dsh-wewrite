@@ -58,7 +58,7 @@ export class MemoryDomain implements StorageDomainHandle {
 
 export function makeCredentials(values: Record<string, string> = {}) {
   const store = new Map(Object.entries(values));
-  const calls = { set: [] as [string, string][], describe: [] as string[], resolve: [] as string[] };
+  const calls = { set: [] as [string, string][], unset: [] as string[], describe: [] as string[], resolve: [] as string[] };
   const service: CredentialsService = {
     set: async (ref, value) => {
       calls.set.push([ref, value]);
@@ -73,6 +73,7 @@ export function makeCredentials(values: Record<string, string> = {}) {
       return store.get(ref);
     },
     unset: async (ref) => {
+      calls.unset.push(ref);
       store.delete(ref);
     },
   };

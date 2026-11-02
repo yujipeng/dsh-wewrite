@@ -135,7 +135,16 @@ describe('TopicConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: '确认写这个' }));
 
     expect(mocks.startGeneration).toHaveBeenCalledWith(
-      { topicMode: 'fixed', topic: '某热点' },
+      {
+        topicMode: 'fixed',
+        topic: '某热点',
+        imageCount: 1,
+        brief: {
+          sources: ['https://s.weibo.com/weibo?q=1'],
+          sourceTitle: '某热点原标题',
+          sourceDigest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+        },
+      },
       '某热点',
       { background: true },
     );
@@ -151,7 +160,17 @@ describe('TopicConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: '确认写这个' }));
 
     expect(mocks.startGeneration).toHaveBeenCalledWith(
-      { topicMode: 'fixed', topic: '建议标题', brief: { title: '建议标题' } },
+      {
+        topicMode: 'fixed',
+        topic: '建议标题',
+        imageCount: 1,
+        brief: {
+          title: '建议标题',
+          sources: ['https://s.weibo.com/weibo?q=5'],
+          sourceTitle: '来源热点',
+          sourceDigest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+        },
+      },
       '建议标题',
       { background: true },
     );
@@ -167,7 +186,19 @@ describe('TopicConfirmDialog', () => {
 
     await user.click(screen.getByRole('button', { name: '排队生成新任务' }));
 
-    expect(mocks.enqueueGeneration).toHaveBeenCalledWith({ topicMode: 'fixed', topic: '某热点' }, '某热点');
+    expect(mocks.enqueueGeneration).toHaveBeenCalledWith(
+      {
+        topicMode: 'fixed',
+        topic: '某热点',
+        imageCount: 1,
+        brief: {
+          sources: ['https://s.weibo.com/weibo?q=1'],
+          sourceTitle: '某热点原标题',
+          sourceDigest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+        },
+      },
+      '某热点',
+    );
     expect(mocks.startGeneration).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
@@ -181,7 +212,19 @@ describe('TopicConfirmDialog', () => {
 
     await user.click(screen.getByRole('button', { name: '替换当前任务' }));
 
-    expect(mocks.replaceGeneration).toHaveBeenCalledWith({ topicMode: 'fixed', topic: '某热点' }, '某热点');
+    expect(mocks.replaceGeneration).toHaveBeenCalledWith(
+      {
+        topicMode: 'fixed',
+        topic: '某热点',
+        imageCount: 1,
+        brief: {
+          sources: ['https://s.weibo.com/weibo?q=1'],
+          sourceTitle: '某热点原标题',
+          sourceDigest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+        },
+      },
+      '某热点',
+    );
   });
 
   it('分析失败：显示可行动提示，但不阻断确认', async () => {

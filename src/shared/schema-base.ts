@@ -115,6 +115,9 @@ export const LaunchBriefSchema = z.strictObject({
   outline: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
   /** 硬绑：来源必须以可见 URL 文本进正文（gates 机械检查），AI 不得编造未给来源。 */
   sources: z.array(z.url()).min(1).max(10).optional(),
+  /** 来源原文的标题与摘要（热点/建议选题带入；供原文核读与写作上下文）。 */
+  sourceTitle: z.string().trim().min(1).max(200).optional(),
+  sourceDigest: z.string().trim().min(1).max(4000).optional(),
   /** I-10：一句话主张，全文论证围绕它展开。 */
   thesis: z.string().trim().min(1).max(200).optional(),
   /** I-10：边界——这篇不写什么，避免跑题与越界。 */

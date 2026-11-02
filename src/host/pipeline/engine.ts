@@ -8,14 +8,15 @@
 import { randomUUID } from 'node:crypto';
 import type { RunParams } from '../../shared/contract';
 import type { RunRecord, StepRecord } from '../domain';
-import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type PipelineLlm } from './llm';
+import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type LaunchBriefForPrompt, type PipelineLlm } from './llm';
 import { isSourceUrlVisible, type GateClaim } from './steps/gates';
+import { createHttpSourceFetcher, type SourceDocument, type SourceFetcher } from './steps/source';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 import type { ImagePromptPlan } from '../images/plan';
 
 export type { LlmStreamOptions, PipelineLlm, PipelineLlmChunk } from './llm';
 
-export const PIPELINE_STEP_NAMES = ['topic', 'outline', 'draft', 'gates', 'render', 'images'] as const;
+export const PIPELINE_STEP_NAMES = ['topic', 'source', 'outline', 'draft', 'gates', 'render', 'images'] as const;
 export type PipelineStepName = (typeof PIPELINE_STEP_NAMES)[number];
 
 export interface RunStore {
@@ -39,6 +40,7 @@ export interface GatesRunner {
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
     styleExemplars?: readonly string[];
+    sourceTexts?: readonly { readonly url: string; readonly title?: string; readonly text: string }[];
     crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }): Promise<{ passed: boolean; report: unknown }>;
 }
@@ -70,6 +72,10 @@ export interface PipelineDeps {
   readonly llm: PipelineLlm;
   readonly store: RunStore;
   readonly topicSource?: TopicSource;
+  /** 来源原文抓取器（默认真实 HTTP 抓取；测试可注入桩）。 */
+  readonly sourceFetcher?: SourceFetcher;
+  /** 外部请求传输层（抓取来源用；缺省全局 fetch）。 */
+  readonly fetchImpl?: typeof fetch;
   readonly gates: GatesRunner;
   readonly renderer: Renderer;
   readonly images: ImagesGenerator;
@@ -238,6 +244,18 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     let reviewMechanisms: string[] | undefined;
     let runStatus: 'succeeded' | 'failed' | 'cancelled' = 'succeeded';
     let runError: { code: string; message: string } | undefined;
+    /** source 步抓到的原文（仅内存使用；run 记录只留 URL/标题/字数）。 */
+    const sourceDocs: SourceDocument[] = [];
+    const sourceFetcher = deps.sourceFetcher ?? createHttpSourceFetcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
+    /** 供 outline/draft 注入原文；source 步未跑或无来源时回退原 brief。 */
+    const promptBrief = (): LaunchBriefForPrompt | undefined => {
+      if (!params.brief) return undefined;
+      if (!sourceDocs.length) return params.brief;
+      return {
+        ...params.brief,
+        sourceExcerpts: sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, text: doc.text })),
+      };
+    };
     let imagesResult: {
       coverImageId?: string;
       bodyImageIds: string[];
@@ -275,6 +293,35 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             if (!params.topic) throw new PipelineStepError('topic-missing', '固定选题模式下 topic 不能为空');
             topic = params.topic;
           }
+        } else if (stepName === 'source') {
+          const sources = params.brief?.sources ?? [];
+          if (!sources.length) {
+            patchStep(runId, stepName, { metrics: { skipped: 'no-source' } });
+          } else {
+            const failures: string[] = [];
+            for (const url of sources) {
+              if (signal.aborted) throwAborted();
+              try {
+                sourceDocs.push(await sourceFetcher.fetch(url, signal));
+              } catch (error) {
+                failures.push(error instanceof Error ? error.message : String(error));
+              }
+            }
+            if (!sourceDocs.length) {
+              // 拿不到原文就暂停：outline/draft 不执行，run 以 failed 收口。
+              throw new PipelineStepError(
+                'source-unavailable',
+                `无法获取来源原文，已暂停写稿：${failures.slice(0, 3).join('；') || '没有可用来源'}`,
+                { failures },
+              );
+            }
+            patchStep(runId, stepName, {
+              metrics: {
+                fetched: sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, chars: doc.chars })),
+                ...(failures.length ? { failed: failures.map((message) => message.slice(0, 200)) } : {}),
+              },
+            });
+          }
         } else if (stepName === 'outline') {
           const llmCall = resolveLlmCall(params);
           // v0.5 骨架绑：brief.outline 给定时，大纲步为「校验+补洞」模式——给定节名
@@ -288,7 +335,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               {
                 purpose: 'wewrite-pipeline',
                 system: pipelineSystemPrompt(deps.writingProfile?.()),
-                user: outlineUserPrompt(topic, params.brief, retryMissing, deps.writingProfile?.()),
+                user: outlineUserPrompt(topic, promptBrief(), retryMissing, deps.writingProfile?.()),
                 ...llmCall,
               },
               signal,
@@ -319,9 +366,10 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           const briefSources = params.brief?.sources?.length ? params.brief.sources : undefined;
           // I-14：近 7 天已用机制作为 mustAvoid 注入成稿提示，避免连续同套路。
           const previousMechanisms = deps.previousMechanisms?.() ?? [];
-          const promptBrief = previousMechanisms.length
-            ? { ...(params.brief ?? {}), mustAvoid: [...(params.brief?.mustAvoid ?? []), ...previousMechanisms] }
-            : params.brief;
+          const baseBrief = promptBrief();
+          const draftBrief = previousMechanisms.length
+            ? { ...(baseBrief ?? {}), mustAvoid: [...(baseBrief?.mustAvoid ?? []), ...previousMechanisms] }
+            : baseBrief;
           let retryMissing: readonly string[] | undefined;
           let retryInvisible: readonly string[] | undefined;
           let draftText = '';
@@ -331,7 +379,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
               {
                 purpose: 'wewrite-pipeline',
                 system: pipelineSystemPrompt(deps.writingProfile?.()),
-                user: draftUserPrompt(topic, outline, promptBrief, retryMissing, retryInvisible, deps.writingProfile?.()),
+                user: draftUserPrompt(topic, outline, draftBrief, retryMissing, retryInvisible, deps.writingProfile?.()),
                 ...llmCall,
               },
               signal,
@@ -359,6 +407,9 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             deps.gates.run({
               markdown: draft,
               ...(styleExemplars.length ? { styleExemplars } : {}),
+              ...(sourceDocs.length
+                ? { sourceTexts: sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, text: doc.text })) }
+                : {}),
               ...(brief?.sources?.length
                 ? {
                     sources: brief.sources,
@@ -413,7 +464,7 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                     draftUserPrompt(
                       topic,
                       outline,
-                      params.brief,
+                      promptBrief(),
                       undefined,
                       undefined,
                       deps.writingProfile?.(),

@@ -110,9 +110,12 @@ export function WewriteProvider({ rpc, t, narrow, children }: { rpc: WewriteRpc;
 
   const startGeneration = useCallback(
     async (params: RunParams, topic: string, options?: { background?: boolean }) => {
+      // 统一兜底：未显式指定配图数时按 1 张封面（与启动卡/文章栏一致），
+      // 避免新入口漏传 imageCount 后被管线当作 0 而静默跳过配图。
+      const normalized: RunParams = { ...params, imageCount: params.imageCount ?? 1 };
       try {
-        const { runId } = await rpc.call<{ runId: string }>('run/start', { params });
-        lastGenerationParams.current = { params, topic };
+        const { runId } = await rpc.call<{ runId: string }>('run/start', { params: normalized });
+        lastGenerationParams.current = { params: normalized, topic };
         // 弹层确认后直接转后台：不打开全屏生成视图，只在右下进度卡展示。
         setGeneration({ runId, topic, overlayOpen: options?.background !== true });
         void refreshSnapshot();

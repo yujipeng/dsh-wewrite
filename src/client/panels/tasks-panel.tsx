@@ -18,6 +18,7 @@ const HISTORY_LIMIT = 50;
 
 const STEP_LABELS: Record<string, string> = {
   topic: '选题分析',
+  source: '原文核读',
   outline: '研究与提纲',
   draft: '初稿写作',
   gates: '质量门禁',

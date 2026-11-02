@@ -1,0 +1,170 @@
+/**
+ * 来源原文核读（v0.5 来源入管线）。
+ *
+ * brief.sources 指向的页面必须先被抓取并提取正文，写稿与事实门禁都以这份
+ * 原文为依据；抓不到原文（超时/非 2xx/正文过短/非文本）时由管线抛
+ * source-unavailable 暂停写稿，绝不凭标题凭空写。
+ */
+
+export interface SourceDocument {
+  readonly url: string;
+  readonly title: string;
+  readonly text: string;
+  readonly chars: number;
+}
+
+export interface SourceFetcher {
+  fetch(url: string, signal?: AbortSignal): Promise<SourceDocument>;
+}
+
+export type SourceFetchErrorCode = 'timeout' | 'network' | 'http-status' | 'unsupported-type' | 'too-large' | 'empty-content';
+
+export class SourceFetchError extends Error {
+  constructor(
+    readonly code: SourceFetchErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'SourceFetchError';
+  }
+}
+
+/** 正文下限：低于此长度视为登录墙/反爬壳，不算拿到原文。 */
+const MIN_CONTENT_CHARS = 200;
+/** 正文上限：足够覆盖新闻全文，同时避免把整站导航塞进 run 记录。 */
+const MAX_CONTENT_CHARS = 20000;
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 15000;
+
+const ENTITY_MAP: Readonly<Record<string, string>> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ldquo: '“',
+  rdquo: '”',
+  lsquo: '‘',
+  rsquo: '’',
+  hellip: '…',
+  mdash: '—',
+  ndash: '–',
+};
+
+function decodeEntities(input: string): string {
+  return input.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
+    const lower = entity.toLowerCase();
+    if (lower.startsWith('#x')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    if (lower.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return ENTITY_MAP[lower] ?? match;
+  });
+}
+
+function stripTags(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<(nav|header|footer|aside|form|svg|iframe|figure)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|section|article|h[1-6]|li|tr|blockquote|pre)>/gi, '\n\n')
+      .replace(/<[^>]+>/g, ' '),
+  );
+}
+
+function normalizeText(text: string): string {
+  return text
+    .replace(/[ \t\u00a0\u3000]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** 提取可读正文：优先 article / 公众号 js_content / main，兜底 body。 */
+export function extractReadableText(html: string): { title: string; text: string } {
+  const titleMatch =
+    html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) ??
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i);
+  const title = decodeEntities(titleMatch?.[1] ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const withoutNoise = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+  const candidates = [
+    withoutNoise.match(/<article[^>]*>([\s\S]*?)<\/article>/i)?.[1],
+    withoutNoise.match(/<[^>]+id=["']js_content["'][^>]*>([\s\S]*?)<\/div>/i)?.[1],
+    withoutNoise.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1],
+    withoutNoise.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1],
+    withoutNoise,
+  ];
+  const raw = candidates.find((item) => item && normalizeText(stripTags(item)).length >= MIN_CONTENT_CHARS) ?? candidates[candidates.length - 1] ?? '';
+  return { title, text: normalizeText(stripTags(raw)) };
+}
+
+export interface HttpSourceFetcherOptions {
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxBytes?: number;
+}
+
+/** HTTP 抓取器：跟随重定向、限制体积与耗时，返回提取后的正文。 */
+export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}): SourceFetcher {
+  const fetchFn = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+
+  return {
+    async fetch(url, signal) {
+      const controller = new AbortController();
+      const forwardAbort = () => controller.abort();
+      signal?.addEventListener('abort', forwardAbort, { once: true });
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        let response: Response;
+        try {
+          response = await fetchFn(url, {
+            redirect: 'follow',
+            signal: controller.signal,
+            headers: {
+              'user-agent': 'Mozilla/5.0 (compatible; dsh-wewrite/0.5; +https://github.com/jerryjiao/dsh-wewrite)',
+              accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
+            },
+          });
+        } catch (error) {
+          if (controller.signal.aborted) {
+            throw new SourceFetchError('timeout', `抓取来源超时（>${timeoutMs}ms）：${url}`);
+          }
+          throw new SourceFetchError(
+            'network',
+            `抓取来源失败：${error instanceof Error ? error.message : String(error)}（${url}）`,
+          );
+        }
+        if (!response.ok) {
+          throw new SourceFetchError('http-status', `来源返回 HTTP ${response.status}：${url}`);
+        }
+        const contentType = response.headers.get('content-type') ?? '';
+        if (contentType && !/text\/html|application\/xhtml|text\/plain|application\/json/i.test(contentType)) {
+          throw new SourceFetchError('unsupported-type', `来源不是可读文本（${contentType}）：${url}`);
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.byteLength > maxBytes) {
+          throw new SourceFetchError('too-large', `来源页面过大（>${maxBytes} 字节），未做正文提取：${url}`);
+        }
+        const { title, text } = extractReadableText(new TextDecoder('utf-8').decode(buffer));
+        if (text.length < MIN_CONTENT_CHARS) {
+          throw new SourceFetchError('empty-content', `来源正文过短（${text.length} 字符），可能被登录墙/反爬拦截：${url}`);
+        }
+        return { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', forwardAbort);
+      }
+    },
+  };
+}

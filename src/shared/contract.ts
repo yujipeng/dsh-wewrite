@@ -66,6 +66,7 @@ export const RPC_ENDPOINTS = [
   'config/get',
   'config/set',
   'credentials/set',
+  'credentials/unset',
   'credentials/describe',
   'llm/options',
   'wechat/pushDraft',
@@ -232,6 +233,10 @@ export const rpcContract: Record<string, { readonly request: z.ZodType; readonly
   },
   'credentials/set': {
     request: z.strictObject({ ref: CredentialRefSchema, value: z.string().min(1) }),
+    response: z.strictObject({ ok: z.boolean() }),
+  },
+  'credentials/unset': {
+    request: z.strictObject({ ref: CredentialRefSchema }),
     response: z.strictObject({ ok: z.boolean() }),
   },
   'credentials/describe': {

@@ -2,7 +2,7 @@
 
 import { CONTRACT_VERSION, type ArticleDetail, type ArticleListItem, type ConfigView, type HotspotAnalysis, type HotspotDigestItem, type HotspotFetchView, type HotspotItem, type HotspotItemDigest, type ImageAsset, type RunDetail, type RunParams, type RunSummary, type ScheduleViewModel, type SnapshotResponse, type SuggestedTopicsView } from '../shared/contract';
 import { createHash, randomUUID } from 'node:crypto';
-import { CREDENTIAL_REFS, DEFAULT_IMAGE_PROVIDER_CHAIN } from '../shared/image-provider-ids';
+import { CREDENTIAL_REFS, IMAGE_PROVIDER_IDS } from '../shared/image-provider-ids';
 import { convertArticle } from '../render/convert';
 import { SettingsRecordSchema, type RunRecord, type ScheduleAction, type ScheduleRecord, type TopicCandidateRecord } from './domain';
 import { rewriteSystemPrompt, rewriteUserPrompt, streamLlmText, type PipelineLlm } from './pipeline/llm';
@@ -112,6 +112,7 @@ export class WeWriteService {
       gates: qualityGatesRunner,
       renderer: { convert: ({ markdown, theme }) => convertArticle({ markdown, theme }) },
       topicSource: { fetch: async (limit: number) => [...(await this.fetchHotspots(limit))] },
+      ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
       images: this.buildImageGenerator(),
       onProduced: ({ markdown, runId, mechanisms }) => this.articles.persistProduced(markdown, runId, mechanisms),
       writingProfile: () => this.settings.writingProfile,
@@ -716,10 +717,25 @@ export class WeWriteService {
     return { ok: true };
   }
 
+  async unsetCredential(ref: string): Promise<{ ok: boolean }> {
+    await this.deps.credentials.unset(ref);
+    // 内存缓存与存储面保持一致：清掉微信 secret 时不能让旧值继续参与推送。
+    if (ref === CREDENTIAL_REFS.wechatSecret) this.wechatSecret = '';
+    return { ok: true };
+  }
+
   async describeCredentials(): Promise<Record<string, { configured: boolean; writable: boolean }>> {
-    const refs = [CREDENTIAL_REFS.wechatSecret, ...DEFAULT_IMAGE_PROVIDER_CHAIN.map(CREDENTIAL_REFS.image)];
+    // 回显面按「微信 secret + 全部 10 家图片供应商 + 链里自定义 credentialRef」全量描述：
+    // 只遍历默认链会漏掉 qwen_image 等可选供应商（设置页的已配置徽标随之消失）。
+    const refs = new Set<string>([
+      CREDENTIAL_REFS.wechatSecret,
+      ...IMAGE_PROVIDER_IDS.map(CREDENTIAL_REFS.image),
+      ...this.settings.imageProviders.map((entry) => entry.credentialRef),
+    ]);
     const descriptors: Record<string, { configured: boolean; writable: boolean }> = {};
     for (const ref of refs) {
+      // 宿主 credentialRef 语法之外的键无法存储，describe 会抛错——跳过更安全。
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) continue;
       const raw = await Promise.resolve(this.deps.credentials.describe(ref));
       descriptors[ref] = { configured: raw?.configured ?? false, writable: raw?.writable ?? true };
     }

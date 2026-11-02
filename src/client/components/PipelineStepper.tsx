@@ -5,8 +5,8 @@ import { CodeChip } from './bits';
 import { Icon } from './Icon';
 
 /**
- * 生成中六阶段 stepper（DESIGN §4.2 / §4.2 生成态）。
- * 步骤序列 = 引擎 PIPELINE_STEP_NAMES：topic→outline→draft→gates→render→images。
+ * 生成中阶段 stepper（DESIGN §4.2 / §4.2 生成态）。
+ * 步骤序列 = 引擎 PIPELINE_STEP_NAMES：topic→source→outline→draft→gates→render→images。
  * 契约事实（contract.RunSummary）：run 视图无 steps 明细——阶段行按 run 整体状态着色
  * （运行中=当前批次未完成、失败=标注失败阶段入口），明细随契约扩展后点亮；
  * 不伪造阶段级进度。失败续跑 = run/start 重跑本稿（AC-4 保留已完成产物）。
@@ -15,6 +15,7 @@ import { Icon } from './Icon';
 
 const STAGES: ReadonlyArray<{ name: string; label: string }> = [
   { name: 'topic', label: '选题分析' },
+  { name: 'source', label: '原文核读' },
   { name: 'outline', label: '研究与提纲' },
   { name: 'draft', label: '初稿写作' },
   { name: 'gates', label: '质量门禁' },

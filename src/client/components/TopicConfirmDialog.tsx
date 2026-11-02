@@ -88,9 +88,19 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
   }, [loadAnalysis]);
 
   const conflict = generation !== null && activeRun !== undefined && (activeRun.status === 'queued' || activeRun.status === 'running');
-  const params: RunParams = draft.kind === 'suggested'
-    ? { topicMode: 'fixed', topic: draft.title, brief: { title: draft.title } }
-    : { topicMode: 'fixed', topic: draft.title };
+  // v0.5：来源入管线——把热点原文 URL/标题/AI 摘要带进 brief；
+  // 管线会先抓取原文再写稿，抓不到原文即暂停（不会凭标题凭空写）。
+  const params: RunParams = {
+    topicMode: 'fixed',
+    topic: draft.title,
+    imageCount: 1,
+    brief: {
+      ...(draft.kind === 'suggested' ? { title: draft.title } : {}),
+      ...(isHttpUrl(draft.sourceUrl) ? { sources: [draft.sourceUrl] } : {}),
+      ...(draft.sourceTitle.trim() ? { sourceTitle: draft.sourceTitle.trim() } : {}),
+      ...(analysis.status === 'ready' && analysis.data.digest.trim() ? { sourceDigest: analysis.data.digest } : {}),
+    },
+  };
 
   const startNow = async () => {
     setBusy(true);

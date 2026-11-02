@@ -170,6 +170,8 @@ export interface GatesReport {
   readonly claims: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-24：与范文的连续重合告警；未携带 styleExemplars 时 undefined。只告警，不参与 passed。 */
   readonly exemplarOverlap: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
+  /** 事实一致性（v0.5 来源入管线）：仅携带 sourceTexts 时启用；不一致阻断渲染。 */
+  readonly sourceConsistency: { readonly passed: boolean; readonly issues: readonly string[] } | undefined;
   /** I-23：Crossref DOI 核对结果（只记录，不参与 passed 判定）。 */
   readonly crossref?: CrossrefReport;
   readonly issues: readonly string[];
@@ -202,6 +204,67 @@ export interface RunGatesInput {
   readonly claims?: readonly GateClaim[];
   /** I-24：范文正文（仅 excerpt）；给了即启用重合告警，不进入 issues、不阻断。 */
   readonly styleExemplars?: readonly string[];
+  /** 来源原文（source 步抓取结果）：给了即启用事实一致性门禁。 */
+  readonly sourceTexts?: readonly GateSourceText[];
+}
+
+export interface GateSourceText {
+  readonly url: string;
+  readonly title?: string;
+  readonly text: string;
+}
+
+/** 归一化比较键：去空白与常见标点，容忍排版差异。 */
+function normalizeForMatch(text: string): string {
+  return text.replace(/[\s\u3000，。！？、；：""''（）()《》【】\-—…·.,!?;:'"]+/g, '');
+}
+
+const YEAR_PATTERN = /(?:19|20)\d{2}\s*年/g;
+
+/** 引语模式：中文弯引号与英文双引号，8–80 字（过短的多为强调词，噪音大）。 */
+const QUOTE_PATTERNS: readonly RegExp[] = [/“([^”]{8,80})”/g, /"([^"]{8,80})"/g];
+
+/**
+ * 事实一致性门禁（v0.5 来源入管线）：
+ * 成稿里的年份与引号引语必须能在来源原文中找到——防止把旧闻/别的新闻套进本次热点。
+ * 来源完全没提年份时跳过该规则；引语最多报 3 条，避免刷屏。
+ */
+export function auditFactConsistency(
+  markdown: string,
+  sourceTexts: readonly GateSourceText[],
+): { passed: boolean; issues: string[] } {
+  const corpusRaw = sourceTexts.map((doc) => `${doc.title ?? ''}\n${doc.text}`).join('\n');
+  const corpus = normalizeForMatch(corpusRaw);
+  if (!corpus) return { passed: true, issues: [] };
+  const issues: string[] = [];
+
+  const sourceYears = new Set<string>();
+  for (const match of corpusRaw.matchAll(YEAR_PATTERN)) sourceYears.add(match[0].replace(/\s+/g, ''));
+  if (sourceYears.size) {
+    const draftYears = new Set<string>();
+    for (const match of markdown.matchAll(YEAR_PATTERN)) draftYears.add(match[0].replace(/\s+/g, ''));
+    for (const year of draftYears) {
+      if (issues.length >= 3) break;
+      if (!sourceYears.has(year)) issues.push(`成稿提到 ${year}，但来源原文中没有这个年份（疑似旧闻或虚构）`);
+    }
+  }
+
+  const quotes = new Set<string>();
+  for (const pattern of QUOTE_PATTERNS) {
+    for (const match of markdown.matchAll(pattern)) quotes.add(match[1].trim());
+  }
+  let quoteIssues = 0;
+  for (const quote of quotes) {
+    if (quoteIssues >= 3) break;
+    if (quote.includes('图片待生成')) continue;
+    const needle = normalizeForMatch(quote);
+    if (needle.length < 8) continue;
+    if (!corpus.includes(needle)) {
+      issues.push(`引语未在来源原文中找到（疑似虚构引语）：「${quote.slice(0, 40)}${quote.length > 40 ? '…' : ''}」`);
+      quoteIssues += 1;
+    }
+  }
+  return { passed: issues.length === 0, issues };
 }
 
 // ── 来源门禁（v0.5 docs/v0.5-launch-brief.md §2「来源」硬绑）──────────────────
@@ -343,6 +406,11 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
     ? auditExemplarOverlap(text, input.styleExemplars)
     : undefined;
 
+  // v0.5：事实一致性——成稿年份/引语必须能在来源原文中找到，否则阻断渲染。
+  const sourceConsistency = input.sourceTexts?.length
+    ? auditFactConsistency(text, input.sourceTexts)
+    : undefined;
+
   const issues: string[] = [];
   if (bannedWords.length) issues.push(`禁用词命中 ${bannedWords.length} 组`);
   if (internalMarkers) issues.push(`内部标记残留 ${internalMarkers} 处`);
@@ -355,6 +423,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
   if (outlineSkeleton && !outlineSkeleton.passed) issues.push(...outlineSkeleton.issues);
   if (contract && !contract.passed) issues.push(...contract.issues);
   if (claims && !claims.passed) issues.push(...claims.issues);
+  if (sourceConsistency && !sourceConsistency.passed) issues.push(...sourceConsistency.issues);
 
   const report: GatesReport = {
     strict: true,
@@ -371,6 +440,7 @@ export function runQualityGates(input: RunGatesInput): { passed: boolean; report
     contract,
     claims,
     exemplarOverlap,
+    sourceConsistency,
     issues,
   };
   return { passed: issues.length === 0, report };
@@ -387,6 +457,7 @@ export const qualityGatesRunner: GatesRunner = {
     mustAvoid?: readonly string[];
     claims?: readonly GateClaim[];
     styleExemplars?: readonly string[];
+    sourceTexts?: readonly GateSourceText[];
     crossref?: { enabled: boolean; fetchImpl?: typeof fetch; timeoutMs?: number };
   }) {
     const result = runQualityGates({
@@ -397,6 +468,7 @@ export const qualityGatesRunner: GatesRunner = {
       ...(input.mustAvoid?.length ? { mustAvoid: input.mustAvoid } : {}),
       ...(input.claims?.length ? { claims: input.claims } : {}),
       ...(input.styleExemplars?.length ? { styleExemplars: input.styleExemplars } : {}),
+      ...(input.sourceTexts?.length ? { sourceTexts: input.sourceTexts } : {}),
     });
     if (!input.crossref) return result;
     // I-23：DOI 核对只写报告，不改 passed（默认关闭时 verifyClaimDois 直接返回，不发请求）。
