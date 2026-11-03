@@ -155,6 +155,23 @@ function sourceExcerptLines(brief?: LaunchBriefForPrompt): string[] {
   return lines;
 }
 
+/** 写作合同块（大纲阶段也要看到主张/边界/读者，避免大纲跑偏）。 */
+function contractLines(brief?: LaunchBriefForPrompt): string[] {
+  const lines: string[] = [];
+  if (brief?.thesis) lines.push(`核心主张：${brief.thesis}`);
+  if (brief?.boundary) lines.push(`边界（这篇不写什么）：${brief.boundary}`);
+  if (brief?.counterpoint) lines.push(`最强反方与回应：${brief.counterpoint}`);
+  if (brief?.audience) {
+    const parts = [
+      brief.audience.who ? `读者：${brief.audience.who}` : '',
+      brief.audience.context ? `场景：${brief.audience.context}` : '',
+      brief.audience.question ? `关心的问题：${brief.audience.question}` : '',
+    ].filter(Boolean);
+    if (parts.length) lines.push(`目标读者：${parts.join('；')}`);
+  }
+  return lines.length ? ['', '写作合同：', ...lines] : [];
+}
+
 /**
  * 风格基准与范文块（I-24）：只校准结构与节奏，空值不注入。
  * 范文必须带「禁止复用」声明；超长内容按注入预算截断。
@@ -188,6 +205,12 @@ export interface LaunchBriefForPrompt {
   readonly sourceDigest?: string;
   /** 管线抓取到的新闻原文（仅在 source 步成功后注入；事实只能来自这里）。 */
   readonly sourceExcerpts?: readonly { readonly url: string; readonly title?: string; readonly text: string }[];
+  /** 研究底稿·可核实事实（prompt 引导，不做机械门禁）。 */
+  readonly facts?: readonly { readonly text: string; readonly quote?: string }[];
+  /** 研究底稿·未核实项（禁止写成事实或断言）。 */
+  readonly cannotAssert?: readonly string[];
+  /** 研究底稿·结尾必须给出的可执行动作。 */
+  readonly actions?: readonly string[];
   readonly thesis?: string;
   readonly boundary?: string;
   readonly counterpoint?: string;
@@ -224,6 +247,7 @@ export function outlineUserPrompt(
       ...profileBlock,
       ...styleBlock,
       ...sourceExcerptLines(brief),
+      ...contractLines(brief),
       '用户已定大纲骨架——以下节名必须原样保留（一字不改）、相对顺序不变：',
       ...skeleton.map((section) => `- ${section}`),
       '',
@@ -242,6 +266,7 @@ export function outlineUserPrompt(
     ...profileBlock,
     ...styleBlock,
     ...sourceExcerptLines(brief),
+    ...contractLines(brief),
     '请给出一篇文章大纲：',
     '- 5 到 8 个二级标题小节，每节一句话说明要覆盖的具体内容；',
     '- 标注每节计划出现的具体证据类型（数据/命令/对比/亲历细节）；',
@@ -291,6 +316,23 @@ export function draftUserPrompt(
     lines.push('', '不得出现的内容（正文禁止出现）：', ...brief.mustAvoid.map((item) => `- ${item}`));
   }
   lines.push(...sourceExcerptLines(brief));
+  const facts = brief?.facts ?? [];
+  if (facts.length) {
+    lines.push('', '研究底稿·可核实事实（只能写这些事实；引用时尽量贴近原文）：');
+    for (const fact of facts) {
+      lines.push(`- ${fact.text}${fact.quote ? `（原文：${truncateForPrompt(fact.quote, 120)}）` : ''}`);
+    }
+  }
+  if (brief?.cannotAssert?.length) {
+    lines.push('', '研究底稿·未核实项（不得写成事实或断言）：', ...brief.cannotAssert.map((item) => `- ${item}`));
+  }
+  if (brief?.actions?.length) {
+    lines.push(
+      '',
+      '结尾必须给出以下可执行动作（可改写措辞，保留动作本身）：',
+      ...brief.actions.map((item, index) => `${index + 1}. ${item}`),
+    );
+  }
   if (brief?.claims?.length) {
     lines.push(
       '',

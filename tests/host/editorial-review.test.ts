@@ -162,3 +162,60 @@ describe('reviewArticle 风格基线注入', () => {
     expect(user).not.toContain('本账号风格基线');
   });
 });
+
+describe('reviewArticle 重试与不可用原因', () => {
+  const logger: HostLogger = { info() {}, warn() {}, error() {} };
+  const validJson = () =>
+    JSON.stringify({
+      dimensions: { accuracy: 4, viewpoint: 4, usefulness: 4, voice: 4, readability: 4 },
+      blockers: [],
+      majorIssues: [],
+      mechanisms: ['沉没成本'],
+      notes: '整体成立',
+    });
+
+  const deps = (llm: PipelineLlm) => ({
+    llm,
+    provider: 'p',
+    model: 'm',
+    timeoutMs: 1000,
+    logger,
+    nowIso: () => '2026-11-02T00:00:00.000Z',
+  });
+
+  it('首次空文本、第二次有效 → 重试一次成功', async () => {
+    let call = 0;
+    const llm = {
+      stream: () => {
+        call += 1;
+        return (async function* () {
+          if (call === 2) yield { type: 'text-delta', index: 0, text: validJson() };
+          yield { type: 'finish', reason: { kind: 'stop' } };
+        })();
+      },
+    } as unknown as PipelineLlm;
+    const outcome = await reviewArticle(deps(llm), { markdown: '正文' });
+    expect(outcome.review).not.toBeNull();
+    expect(outcome.attempts).toBe(2);
+  });
+
+  it('持续失败 → 返回 unavailable 原因', async () => {
+    const llm = {
+      stream: () => (async function* () {
+        yield { type: 'finish', reason: { kind: 'stop' } };
+      })(),
+    } as unknown as PipelineLlm;
+    const outcome = await reviewArticle(deps(llm), { markdown: '正文' });
+    expect(outcome.review).toBeNull();
+    expect(outcome.reason).toContain('空文本');
+    expect(outcome.attempts).toBe(2);
+  });
+
+  it('未配置模型 → attempts=0 且带原因', async () => {
+    const llm = { stream: () => (async function* () {})() } as unknown as PipelineLlm;
+    const outcome = await reviewArticle({ ...deps(llm), provider: '', model: '' }, { markdown: '正文' });
+    expect(outcome.review).toBeNull();
+    expect(outcome.reason).toContain('未配置评审模型');
+    expect(outcome.attempts).toBe(0);
+  });
+});

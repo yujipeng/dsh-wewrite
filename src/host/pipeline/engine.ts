@@ -10,14 +10,15 @@ import type { RunParams } from '../../shared/contract';
 import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type LaunchBriefForPrompt, type PipelineLlm } from './llm';
 import { isSourceUrlVisible, type GateClaim } from './steps/gates';
-import { createHttpSourceFetcher, type SourceDocument, type SourceFetcher } from './steps/source';
-import { createSogouWechatSearcher, isAggregatorUrl, pickBestHit, type SourceSearcher } from './steps/source-search';
+import { createHttpSourceFetcher, isUsableSourceDocument, type SourceDocument, type SourceFetcher } from './steps/source';
+import { createSogouWechatSearcher, isAggregatorUrl, isArticleUrl, pickBestHit, type SourceSearcher } from './steps/source-search';
+import { type ResearchNotes } from './steps/research';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 import type { ImagePromptPlan } from '../images/plan';
 
 export type { LlmStreamOptions, PipelineLlm, PipelineLlmChunk } from './llm';
 
-export const PIPELINE_STEP_NAMES = ['topic', 'source', 'outline', 'draft', 'gates', 'render', 'images'] as const;
+export const PIPELINE_STEP_NAMES = ['topic', 'source', 'research', 'outline', 'draft', 'gates', 'render', 'images'] as const;
 export type PipelineStepName = (typeof PIPELINE_STEP_NAMES)[number];
 
 export interface RunStore {
@@ -77,6 +78,24 @@ export interface PipelineDeps {
   readonly sourceFetcher?: SourceFetcher;
   /** 热搜聚合页的媒体报道检索器（默认搜狗微信；测试可注入桩）。 */
   readonly sourceSearch?: SourceSearcher;
+  /** 研究底稿抽取器（service 装配；未注入时 research 步跳过，便于单测聚焦）。 */
+  readonly research?: {
+    run(input: {
+      topic: string;
+      docs: readonly SourceDocument[];
+      llmCall: { provider: string; model: string };
+      signal: AbortSignal;
+    }): Promise<ResearchNotes | undefined>;
+  };
+  /** 标题提炼器（brief.title 未给定且成稿通过门禁后调用；未注入时沿用推导标题）。 */
+  readonly titleSuggester?: {
+    run(input: {
+      topic: string;
+      markdown: string;
+      llmCall: { provider: string; model: string };
+      signal: AbortSignal;
+    }): Promise<string[]>;
+  };
   /** 外部请求传输层（抓取来源用；缺省全局 fetch）。 */
   readonly fetchImpl?: typeof fetch;
   readonly gates: GatesRunner;
@@ -84,7 +103,7 @@ export interface PipelineDeps {
   readonly images: ImagesGenerator;
   readonly now?: () => Date;
   /** 渲染完成后回调（service 层把成稿落 article 记录）；返回文章 id 供后续回绑。 */
-  readonly onProduced?: (output: { markdown: string; runId: string; mechanisms?: readonly string[] }) => Promise<string | void>;
+  readonly onProduced?: (output: { markdown: string; runId: string; mechanisms?: readonly string[]; title?: string }) => Promise<string | void>;
   /** I-14：近 7 天已用机制（注入 draft 的 mustAvoid，避免连续同套路）。 */
   readonly previousMechanisms?: () => readonly string[];
   /** 公众号写作要求（设置页 writingProfile）；每次文本步实时读取，改设置即生效。 */
@@ -97,9 +116,13 @@ export interface PipelineDeps {
   }) => Promise<void>;
   /** 同时执行的 run 上限（FIFO 排队，默认 1 = 串行）。 */
   readonly maxConcurrentRuns?: number;
-  /** I-12：五维编辑评审（规则门禁通过后调用；返回 null 表示降级，不阻断）。 */
+  /** I-12：五维编辑评审（规则门禁通过后调用；返回 review=null 表示降级并带原因）。 */
   readonly editorialReview?: {
-    run(input: { markdown: string; topic?: string }): Promise<EditorialReview | null>;
+    run(input: { markdown: string; topic?: string }): Promise<{
+      review: EditorialReview | null;
+      reason?: string;
+      attempts?: number;
+    }>;
   };
   /** I-12：评审阈值（默认 3.5）。 */
   readonly reviewThreshold?: number;
@@ -249,15 +272,33 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     let runError: { code: string; message: string } | undefined;
     /** source 步抓到的原文（仅内存使用；run 记录只留 URL/标题/字数）。 */
     const sourceDocs: SourceDocument[] = [];
+    let researchNotes: ResearchNotes | undefined;
     const sourceFetcher = deps.sourceFetcher ?? createHttpSourceFetcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
     const sourceSearch = deps.sourceSearch ?? createSogouWechatSearcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
-    /** 供 outline/draft 注入原文；source 步未跑或无来源时回退原 brief。 */
+    /** 供 outline/draft 注入原文与研究底稿；source/research 未跑时回退原 brief。 */
     const promptBrief = (): LaunchBriefForPrompt | undefined => {
-      if (!params.brief) return undefined;
-      if (!sourceDocs.length) return params.brief;
+      const base = params.brief;
+      const excerpts = sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, text: doc.text }));
+      if (!base && !researchNotes && !excerpts.length) return undefined;
       return {
-        ...params.brief,
-        sourceExcerpts: sourceDocs.map((doc) => ({ url: doc.url, title: doc.title, text: doc.text })),
+        ...(base ?? {}),
+        ...(excerpts.length ? { sourceExcerpts: excerpts } : {}),
+        ...(researchNotes?.facts.length
+          ? {
+              facts: researchNotes.facts.map((fact) => ({
+                text: fact.text,
+                ...(fact.quote ? { quote: fact.quote } : {}),
+              })),
+            }
+          : {}),
+        ...(researchNotes?.cannotVerify.length ? { cannotAssert: researchNotes.cannotVerify } : {}),
+        ...(researchNotes?.contract?.actions?.length ? { actions: researchNotes.contract.actions } : {}),
+        ...(researchNotes?.contract?.thesis && !base?.thesis ? { thesis: researchNotes.contract.thesis } : {}),
+        ...(researchNotes?.contract?.counterpoint && !base?.counterpoint
+          ? { counterpoint: researchNotes.contract.counterpoint }
+          : {}),
+        ...(researchNotes?.contract?.audience && !base?.audience ? { audience: researchNotes.contract.audience } : {}),
+        ...(!base?.boundary && researchNotes?.boundary.length ? { boundary: researchNotes.boundary.join('；') } : {}),
       };
     };
     let imagesResult: {
@@ -317,9 +358,14 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                   if (!best) {
                     failures.push(`来源是热搜聚合页，按标题「${searchTitle}」检索不到媒体报道：${url}`);
                   } else {
-                    candidates.push(await sourceSearch.resolve(best.url, signal));
+                    const resolved = await sourceSearch.resolve(best.url, signal);
+                    if (isArticleUrl(resolved)) candidates.push(resolved);
+                    else failures.push(`检索命中仍是搜索/中转页，未拿到文章直链：${resolved}`);
                     const second = hits.find((hit) => hit.url !== best.url);
-                    if (second) candidates.push(await sourceSearch.resolve(second.url, signal));
+                    if (second) {
+                      const resolvedSecond = await sourceSearch.resolve(second.url, signal);
+                      if (isArticleUrl(resolvedSecond)) candidates.push(resolvedSecond);
+                    }
                   }
                 } catch (error) {
                   failures.push(`热搜原文检索失败：${error instanceof Error ? error.message : String(error)}（${url}）`);
@@ -331,6 +377,9 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                 if (signal.aborted) throwAborted();
                 try {
                   const doc = await sourceFetcher.fetch(candidate, signal);
+                  if (!isUsableSourceDocument(doc)) {
+                    throw new Error(`抓到的是检索/壳页面而不是文章（${doc.title || '无标题'}，${doc.chars} 字）：${doc.url}`);
+                  }
                   if (!sourceDocs.some((existing) => existing.url === doc.url)) sourceDocs.push(doc);
                   break;
                 } catch (error) {
@@ -353,6 +402,29 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                 ...(failures.length ? { failed: failures.map((message) => message.slice(0, 200)) } : {}),
               },
             });
+          }
+        } else if (stepName === 'research') {
+          if (!sourceDocs.length) {
+            patchStep(runId, stepName, { metrics: { skipped: 'no-source' } });
+          } else if (!deps.research) {
+            patchStep(runId, stepName, { metrics: { skipped: 'disabled' } });
+          } else {
+            const notes = await deps.research
+              .run({ topic, docs: sourceDocs, llmCall: resolveLlmCall(params), signal })
+              .catch(() => undefined);
+            if (!notes) {
+              // 底稿抽取失败不阻断：成稿仍以原文摘录为依据，只是少了结构化事实。
+              patchStep(runId, stepName, { metrics: { degraded: true } });
+            } else {
+              researchNotes = notes;
+              patchStep(runId, stepName, {
+                metrics: {
+                  facts: notes.facts.length,
+                  cannotVerify: notes.cannotVerify.length,
+                  boundary: notes.boundary.length,
+                },
+              });
+            }
           }
         } else if (stepName === 'outline') {
           const llmCall = resolveLlmCall(params);
@@ -472,13 +544,14 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           }
 
           if (deps.editorialReview) {
-            let review = await deps.editorialReview
+            let reviewResult = await deps.editorialReview
               .run({
                 markdown: draft,
                 ...(topic ? { topic } : {}),
                 ...(deps.writingProfile?.() ? { profile: deps.writingProfile?.() } : {}),
               })
-              .catch(() => null);
+              .catch(() => ({ review: null, reason: '评审调用异常', attempts: 0 }));
+            let review = reviewResult.review;
             let judgment = review
               ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)
               : null;
@@ -524,13 +597,14 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                       : '质量门禁未通过（自动修订后），默认推送路径已被阻断';
                   throw new PipelineStepError('gates-failed', summary, verdict.report);
                 }
-                review = await deps.editorialReview
+                reviewResult = await deps.editorialReview
                   .run({
                     markdown: draft,
                     ...(topic ? { topic } : {}),
                     ...(deps.writingProfile?.() ? { profile: deps.writingProfile?.() } : {}),
                   })
-                  .catch(() => null);
+                  .catch(() => ({ review: null, reason: '评审调用异常', attempts: 0 }));
+                review = reviewResult.review;
                 judgment = review
                   ? judgeEditorialReview(review, deps.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD)
                   : null;
@@ -539,7 +613,15 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
 
             if (!review) {
               patchStep(runId, stepName, {
-                metrics: { report: verdict.report, review: { unavailable: true }, ...(revised ? { revised } : {}) },
+                metrics: {
+                  report: verdict.report,
+                  review: {
+                    unavailable: true,
+                    ...(reviewResult.reason ? { reason: reviewResult.reason } : {}),
+                    ...(reviewResult.attempts !== undefined ? { attempts: reviewResult.attempts } : {}),
+                  },
+                  ...(revised ? { revised } : {}),
+                },
               });
             } else {
               patchStep(runId, stepName, {
@@ -556,13 +638,27 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
             }
           }
         } else if (stepName === 'render') {
+          // P4：brief.title 未给定 → 从成稿提炼 3 个标题候选，取第一个作为文章标题。
+          let titleCandidates: string[] | undefined;
+          if (!params.brief?.title && deps.titleSuggester) {
+            titleCandidates = await deps.titleSuggester
+              .run({ topic, markdown: draft, llmCall: resolveLlmCall(params), signal })
+              .catch(() => []);
+            if (!titleCandidates.length) titleCandidates = undefined;
+          }
           const html = deps.renderer.convert({ markdown: draft, theme: params.theme });
-          patchStep(runId, stepName, { metrics: { htmlChars: html.length } });
+          patchStep(runId, stepName, {
+            metrics: {
+              htmlChars: html.length,
+              ...(titleCandidates?.length ? { titleCandidates, titleUsed: titleCandidates[0] } : {}),
+            },
+          });
           if (deps.onProduced) {
             const returnedArticleId = await deps.onProduced({
               markdown: draft,
               runId,
               ...(reviewMechanisms ? { mechanisms: reviewMechanisms } : {}),
+              ...(titleCandidates?.length ? { title: titleCandidates[0] } : {}),
             });
             if (typeof returnedArticleId === 'string' && returnedArticleId) producedArticleId = returnedArticleId;
           }

@@ -46,6 +46,18 @@ export function isAggregatorUrl(url: string): boolean {
   }
 }
 
+/** 是否是可以直接当原文抓取的文章 URL：非聚合页、非搜狗中转/搜索域。 */
+export function isArticleUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase() === 'weixin.sogou.com') return false;
+    if (isAggregatorUrl(url)) return false;
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /** 解析搜狗微信结果页：标题/链接/摘要/公众号名。 */
 export function parseSogouResults(html: string): SourceSearchHit[] {
   const listMatch = html.match(/<ul[^>]*class=["'][^"']*news-list[^"']*["'][^>]*>([\s\S]*?)<\/ul>/i);

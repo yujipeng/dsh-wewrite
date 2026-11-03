@@ -9,6 +9,8 @@ import { rewriteSystemPrompt, rewriteUserPrompt, streamLlmText, type PipelineLlm
 import { digestHotspotItem as runHotspotDigest } from './hotspot-digest';
 import { analyzeHotspot as runHotspotAnalyze } from './hotspot-analyze';
 import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunStore } from './pipeline/engine';
+import { extractResearchNotes } from './pipeline/steps/research';
+import { suggestTitles } from './pipeline/steps/title';
 import { aggregateHotspots, buildHotspotSources } from './pipeline/steps/topic';
 import { suggestTopics as runSuggestTopics } from './suggest-topics';
 import { researchTopic as runResearchTopic, type ResearchResult } from './research';
@@ -113,8 +115,14 @@ export class WeWriteService {
       renderer: { convert: ({ markdown, theme }) => convertArticle({ markdown, theme }) },
       topicSource: { fetch: async (limit: number) => [...(await this.fetchHotspots(limit))] },
       ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+      research: {
+        run: (input) => extractResearchNotes(deps.llm as unknown as import('./pipeline/llm').PipelineLlm, input),
+      },
+      titleSuggester: {
+        run: (input) => suggestTitles(deps.llm as unknown as import('./pipeline/llm').PipelineLlm, input),
+      },
       images: this.buildImageGenerator(),
-      onProduced: ({ markdown, runId, mechanisms }) => this.articles.persistProduced(markdown, runId, mechanisms),
+      onProduced: ({ markdown, runId, mechanisms, title }) => this.articles.persistProduced(markdown, runId, mechanisms, title),
       writingProfile: () => this.settings.writingProfile,
       previousMechanisms: () => this.recentMechanisms(),
       onImagesBound: ({ articleId, coverImageId, bodyImageIds }) =>
@@ -122,7 +130,9 @@ export class WeWriteService {
       maxConcurrentRuns: MAX_CONCURRENT_RUNS,
       editorialReview: {
         run: (input) => {
-          if (this.settings.editorialReview?.enabled === false) return Promise.resolve(null);
+          if (this.settings.editorialReview?.enabled === false) {
+            return Promise.resolve({ review: null, reason: '评审已关闭（settings.editorialReview.enabled=false）', attempts: 0 });
+          }
           return reviewArticle(
             {
               llm: this.deps.llm as unknown as PipelineLlm,

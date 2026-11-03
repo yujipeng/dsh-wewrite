@@ -17,7 +17,7 @@ export interface SourceFetcher {
   fetch(url: string, signal?: AbortSignal): Promise<SourceDocument>;
 }
 
-export type SourceFetchErrorCode = 'timeout' | 'network' | 'http-status' | 'unsupported-type' | 'too-large' | 'empty-content';
+export type SourceFetchErrorCode = 'timeout' | 'network' | 'http-status' | 'unsupported-type' | 'too-large' | 'empty-content' | 'shell-page';
 
 export class SourceFetchError extends Error {
   constructor(
@@ -29,10 +29,25 @@ export class SourceFetchError extends Error {
   }
 }
 
-/** 正文下限：低于此长度视为登录墙/反爬壳，不算拿到原文。 */
-const MIN_CONTENT_CHARS = 200;
+/** 正文下限：低于此长度视为登录墙/搜索壳/反爬页，不算拿到原文。 */
+const MIN_CONTENT_CHARS = 600;
 /** 正文上限：足够覆盖新闻全文，同时避免把整站导航塞进 run 记录。 */
 const MAX_CONTENT_CHARS = 20000;
+/** 搜索/聚合页的壳标题：抓到这些说明拿到的不是文章，而是检索结果页。 */
+const SHELL_TITLES = ['搜狗搜索', '百度一下，你就知道', '微博', '微博搜索', '头条搜索'];
+
+function isShellTitle(title: string): boolean {
+  const value = title.trim();
+  return SHELL_TITLES.some((shell) => value === shell || value.startsWith(shell));
+}
+
+/** 是否是可以作为写稿依据的文章：非搜狗中转/聚合页、非壳标题、正文达到下限。 */
+export function isUsableSourceDocument(doc: SourceDocument): boolean {
+  if (doc.chars < MIN_CONTENT_CHARS) return false;
+  if (doc.url.includes('weixin.sogou.com')) return false;
+  if (isShellTitle(doc.title)) return false;
+  return true;
+}
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -177,9 +192,16 @@ export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}):
       }
       const { title, text } = extractReadableText(new TextDecoder('utf-8').decode(buffer));
       if (text.length < MIN_CONTENT_CHARS) {
-        throw new SourceFetchError('empty-content', `来源正文过短（${text.length} 字符），可能被登录墙/反爬拦截：${url}`);
+        throw new SourceFetchError(
+          'empty-content',
+          `来源正文过短（${text.length} 字符 < ${MIN_CONTENT_CHARS}），可能是登录墙/搜索壳/反爬页：${url}`,
+        );
       }
-      return { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
+      const doc: SourceDocument = { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
+      if (!isUsableSourceDocument(doc)) {
+        throw new SourceFetchError('shell-page', `抓到的是检索/壳页面而不是文章（${title || '无标题'}）：${url}`);
+      }
+      return doc;
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', forwardAbort);

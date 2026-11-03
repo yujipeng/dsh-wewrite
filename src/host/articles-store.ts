@@ -75,7 +75,7 @@ export class ArticleStore {
   }
 
   /** 管线渲染完成后落库：绑定 articleId 则更新，否则按成稿新建（slug/标题/摘要推导）。返回文章 id。 */
-  async persistProduced(markdown: string, runId: string, mechanisms?: readonly string[]): Promise<string> {
+  async persistProduced(markdown: string, runId: string, mechanisms?: readonly string[], titleOverride?: string): Promise<string> {
     return this.deps.serialize(async () => {
       const now = this.deps.nowIso();
       const run = this.deps.runStore.get(runId);
@@ -84,8 +84,12 @@ export class ArticleStore {
         v: 1,
         id: existing?.id ?? `art_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
         slug: existing?.slug ?? `run-${runId.slice(4, 16)}`,
-        // v0.5 标题硬绑：启动 brief 给定标题优先于成稿推导（给了就是最终标题）。
-        title: existing?.title ?? run?.paramsSnapshot.brief?.title ?? deriveTitle(markdown, run?.paramsSnapshot.topic),
+        // v0.5 标题硬绑：启动 brief 给定标题优先于成稿推导；P4 标题提炼作为推导前的次优来源。
+        title:
+          existing?.title
+          ?? run?.paramsSnapshot.brief?.title
+          ?? titleOverride
+          ?? deriveTitle(markdown, run?.paramsSnapshot.topic),
         digest: existing?.digest ?? deriveDigest(markdown),
         status: 'rendered',
         markdown,

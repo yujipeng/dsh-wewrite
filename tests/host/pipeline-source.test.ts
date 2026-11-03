@@ -21,7 +21,7 @@ const ARTICLE_HTML = `<html><head><title>罗技小狗表情包广告引争议</t
     <h1>罗技被指暗讽消费者</h1>
     <p>11 月 2 日，罗技 G 影音旗舰店官方账号发布促销视频，使用小狗表情包做对比。</p>
     <p>客服回应称：小狗只是表情包，不是侮辱消费者。</p>
-    <p>${'补充正文内容，包含时间、主体与回应细节。'.repeat(12)}</p>
+    <p>${'补充正文内容，包含时间、主体与回应细节。'.repeat(40)}</p>
   </article>
   <footer>版权信息</footer>
   <script>console.log('tracking')</script>
@@ -65,7 +65,7 @@ function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string; 
     store,
     sourceFetcher:
       options.sourceFetcher ??
-      ({ fetch: vi.fn(async (url: string) => ({ url, title: '罗技小狗表情包广告引争议', text: '原文正文'.repeat(80), chars: 320 })) } as SourceFetcher),
+      ({ fetch: vi.fn(async (url: string) => ({ url, title: '罗技小狗表情包广告引争议', text: '原文正文'.repeat(200), chars: 800 })) } as SourceFetcher),
     sourceSearch:
       options.sourceSearch ??
       ({ search: async () => [], resolve: async (url: string) => url } as SourceSearcher),
@@ -178,7 +178,7 @@ describe('热搜聚合页 → 媒体报道', () => {
       resolve: vi.fn(async () => 'https://mp.weixin.qq.com/s/abc'),
     };
     const fetcher = {
-      fetch: vi.fn(async (url: string) => ({ url, title: '罗技广告再被指侮辱用户', text: '小狗表情包'.repeat(60), chars: 300 })),
+      fetch: vi.fn(async (url: string) => ({ url, title: '罗技广告再被指侮辱用户', text: '小狗表情包'.repeat(200), chars: 1000 })),
     };
     const { engine, store } = makeEngine({ sourceSearch: search, sourceFetcher: fetcher });
     const runId = await engine.start({
@@ -214,6 +214,59 @@ describe('热搜聚合页 → 媒体报道', () => {
     expect(run?.status).toBe('failed');
     expect(run?.error?.code).toBe('source-unavailable');
     expect(run?.error?.message).toContain('检索不到');
+    expect(llmStream).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe('来源假成功拦截（v0.5 修复）', () => {
+  it('抓到搜狗中转页（241 字壳）→ 判失败并暂停', async () => {
+    const fetcher = {
+      fetch: vi.fn(async (url: string) => ({ url, title: '搜狗搜索', text: '搜狗搜索 相关结果'.repeat(20), chars: 241 })),
+    };
+    const { engine, store, llmStream } = makeEngine({ sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: { ...baseParams, brief: { sources: ['https://weixin.sogou.com/link?url=abc'] } },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.code).toBe('source-unavailable');
+    expect(run?.error?.message).toContain('检索/壳页面');
+    expect(llmStream).toHaveBeenCalledTimes(0);
+  });
+
+  it('壳标题（搜狗搜索）即使正文很长也判失败', async () => {
+    const fetcher = {
+      fetch: vi.fn(async (url: string) => ({ url, title: '搜狗搜索', text: '正文'.repeat(400), chars: 800 })),
+    };
+    const { engine, store } = makeEngine({ sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: { ...baseParams, brief: { sources: ['https://news.example.test/a'] } },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.message).toContain('检索/壳页面');
+  });
+
+  it('检索命中解析后仍是搜狗中转页 → 判失败并暂停', async () => {
+    const search = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户', url: 'https://weixin.sogou.com/link?url=abc', summary: '', publisher: '潇湘晨报' },
+      ]),
+      resolve: vi.fn(async (url: string) => url),
+    };
+    const { engine, store, llmStream } = makeEngine({ sourceSearch: search });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.message).toContain('未拿到文章直链');
     expect(llmStream).toHaveBeenCalledTimes(0);
   });
 });

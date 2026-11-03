@@ -138,13 +138,18 @@ export function judgeEditorialReview(
   return { passed: issues.length === 0, issues };
 }
 
-/** 单次评审；任何失败返回 null（降级为仅规则门禁），不抛错。 */
-export async function reviewArticle(
-  deps: EditorialReviewDeps,
-  input: EditorialReviewInput,
-): Promise<EditorialReview | null> {
+export interface ReviewOutcome {
+  readonly review: EditorialReview | null;
+  /** 评审不可用的原因（未配置模型 / LLM 错误 / JSON 解析失败 / 超时）。 */
+  readonly reason?: string;
+  /** 实际尝试次数（配置缺失时为 0，正常最多 2）。 */
+  readonly attempts: number;
+}
+
+/** 单次评审尝试；任何失败都返回原因，不抛错。 */
+async function attemptReview(deps: EditorialReviewDeps, input: EditorialReviewInput): Promise<{ review: EditorialReview | null; reason?: string }> {
   const { provider, model } = deps;
-  if (!provider || !model) return null;
+  if (!provider || !model) return { review: null, reason: '未配置评审模型（provider/model 为空）' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
   try {
@@ -161,19 +166,45 @@ export async function reviewArticle(
       controller.signal,
     );
     if (outcome.status !== 'ok' || !outcome.text) {
-      deps.logger.warn(`editorial review 降级：status=${outcome.status} ${outcome.status === 'error' ? outcome.message : ''}`);
-      return null;
+      const reason =
+        outcome.status === 'aborted'
+          ? `评审超时（>${deps.timeoutMs}ms）`
+          : outcome.status === 'error'
+            ? `LLM 错误：${outcome.message}`
+            : 'LLM 返回空文本';
+      deps.logger.warn(`editorial review 降级：${reason}`);
+      return { review: null, reason };
     }
     const review = parseEditorialReview(outcome.text, model, deps.nowIso());
     if (!review) {
       deps.logger.warn('editorial review 降级：JSON 解析失败');
-      return null;
+      return { review: null, reason: '评审 JSON 解析失败' };
     }
-    return review;
+    return { review };
   } catch (error) {
-    deps.logger.warn(`editorial review 降级：${error instanceof Error ? error.message : String(error)}`);
-    return null;
+    const reason = error instanceof Error ? error.message : String(error);
+    deps.logger.warn(`editorial review 降级：${reason}`);
+    return { review: null, reason };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 评审（失败重试一次）；仍失败返回结构化原因，供 run metrics 记录。 */
+export async function reviewArticle(
+  deps: EditorialReviewDeps,
+  input: EditorialReviewInput,
+): Promise<ReviewOutcome> {
+  if (!deps.provider || !deps.model) {
+    return { review: null, reason: '未配置评审模型（provider/model 为空）', attempts: 0 };
+  }
+  let lastReason: string | undefined;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const result = await attemptReview(deps, input);
+    if (result.review) return { review: result.review, attempts: attempt };
+    lastReason = result.reason;
+    // 超时不再重试（下一次仍会等满超时）；其他失败给一次重试。
+    if (result.reason?.startsWith('评审超时')) break;
+  }
+  return { review: null, ...(lastReason ? { reason: lastReason } : {}), attempts: 2 };
 }

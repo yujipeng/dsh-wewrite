@@ -16,6 +16,7 @@ import { Icon } from './Icon';
 const STAGES: ReadonlyArray<{ name: string; label: string }> = [
   { name: 'topic', label: '选题分析' },
   { name: 'source', label: '原文核读' },
+  { name: 'research', label: '事实底稿' },
   { name: 'outline', label: '研究与提纲' },
   { name: 'draft', label: '初稿写作' },
   { name: 'gates', label: '质量门禁' },

@@ -18,7 +18,7 @@ import {
  * 本文件钉定 src/host/pipeline/engine.ts 的消费面：
  * - createPipelineEngine(deps) -> { start(opts): Promise<runId>, cancel(runId), resumeInterrupted() }
  * - start() 在 run 到达终态时 resolve（RPC 层可不等 await 立即回 runId）
- * - 步骤序列固定：topic -> source -> outline -> draft -> gates -> render -> images
+ * - 步骤序列固定：topic -> source -> research -> outline -> draft -> gates -> render -> images
  * - 未执行步骤 status='pending'；失败步骤带 error{code,message}
  */
 
@@ -105,8 +105,8 @@ function makeEngine(deps: ReturnType<typeof makeDeps>): PipelineEngine {
 }
 
 describe('PIPELINE_STEP_NAMES（架构 §3 管线步骤）', () => {
-  it('步骤序列精确为 topic/source/outline/draft/gates/render/images', () => {
-    expect([...PIPELINE_STEP_NAMES]).toEqual(['topic', 'source', 'outline', 'draft', 'gates', 'render', 'images']);
+  it('步骤序列精确为 topic/source/research/outline/draft/gates/render/images', () => {
+    expect([...PIPELINE_STEP_NAMES]).toEqual(['topic', 'source', 'research', 'outline', 'draft', 'gates', 'render', 'images']);
   });
 });
 
@@ -609,7 +609,10 @@ describe('I-13 评审失败自动修订一轮', () => {
   };
 
   it('首轮失败 → 自动重写一次并复评通过', async () => {
-    const review = vi.fn().mockResolvedValueOnce(failReview).mockResolvedValueOnce(baseReview);
+    const review = vi
+      .fn()
+      .mockResolvedValueOnce({ review: failReview, attempts: 1 })
+      .mockResolvedValueOnce({ review: baseReview, attempts: 1 });
     const deps = { ...makeDeps(), editorialReview: { run: review } };
     const engine = createPipelineEngine(deps);
 
@@ -623,7 +626,7 @@ describe('I-13 评审失败自动修订一轮', () => {
   });
 
   it('第二轮仍失败 → run failed，错误信息标明自动修订后', async () => {
-    const review = vi.fn().mockResolvedValue(failReview);
+    const review = vi.fn().mockResolvedValue({ review: failReview, attempts: 1 });
     const deps = { ...makeDeps(), editorialReview: { run: review } };
     const engine = createPipelineEngine(deps);
 
@@ -651,7 +654,7 @@ describe('I-14 跨篇已用机制', () => {
     const onProduced = vi.fn(async () => 'art_1');
     const deps = {
       ...makeDeps(),
-      editorialReview: { run: vi.fn(async () => reviewWithMechanisms) },
+      editorialReview: { run: vi.fn(async () => ({ review: reviewWithMechanisms, attempts: 1 })) },
       onProduced,
     };
     const engine = createPipelineEngine(deps);

@@ -70,7 +70,7 @@ function makeEngineDeps(llmTexts: string[]) {
     gates: { run: gatesRun },
     // 来源步桩：本文件只测 brief 合同，不访问真实网络。
     sourceFetcher: {
-      fetch: async (url: string) => ({ url, title: '来源标题', text: '来源原文内容，用于测试。'.repeat(20), chars: 300 }),
+      fetch: async (url: string) => ({ url, title: '来源标题', text: '来源原文内容，用于测试。'.repeat(80), chars: 1200 }),
     },
     renderer: { convert: () => '<section style="color:#0F1115">html</section>' },
     images: { generate: vi.fn(async () => ({ coverImageId: 'img_0', bodyImageIds: [] })) },
