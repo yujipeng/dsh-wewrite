@@ -5,6 +5,7 @@ import type { RunParams } from '@/shared/contract';
 import { createPipelineEngine, type PipelineLlm, type RunStore } from '@/host/pipeline/engine';
 import { createHttpSourceFetcher, extractReadableText, SourceFetchError, type SourceFetcher } from '@/host/pipeline/steps/source';
 import type { SourceSearcher } from '@/host/pipeline/steps/source-search';
+import type { WebSearcher } from '@/host/pipeline/steps/web-search';
 
 /**
  * 来源入管线（v0.5）：
@@ -57,7 +58,7 @@ const okStream = (text: string) =>
     yield { type: 'finish' as const, reason: { kind: 'stop' as const } };
   })();
 
-function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string; sourceSearch?: SourceSearcher } = {}) {
+function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string; sourceSearch?: SourceSearcher; webSearch?: WebSearcher; apiSearch?: WebSearcher } = {}) {
   const llmStream = vi.fn(async (_options: Record<string, unknown>) => okStream(options.llmText ?? '生成的成稿文本'));
   const store = new MemoryRunStore();
   const engine = createPipelineEngine({
@@ -69,6 +70,8 @@ function makeEngine(options: { sourceFetcher?: SourceFetcher; llmText?: string; 
     sourceSearch:
       options.sourceSearch ??
       ({ search: async () => [], resolve: async (url: string) => url } as SourceSearcher),
+    webSearch: options.webSearch ?? ({ search: async () => [] } as WebSearcher),
+    ...(options.apiSearch ? { apiSearch: options.apiSearch } : {}),
     gates: { run: async () => ({ passed: true, report: {} }) },
     renderer: { convert: () => '<section>x</section>' },
     images: { generate: async () => ({ bodyImageIds: [] }) },
@@ -195,6 +198,188 @@ describe('热搜聚合页 → 媒体报道', () => {
     expect(fetcher.fetch).toHaveBeenCalledWith('https://mp.weixin.qq.com/s/abc', expect.anything());
     const sourceStep = run?.steps.find((step) => step.name === 'source');
     expect((sourceStep?.metrics as { searched?: boolean } | undefined)?.searched).toBe(true);
+  });
+
+  it('聚合页直链抓取失败时回退到检索候选（候选合并去重）', async () => {
+    const search = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户', url: 'https://weixin.sogou.com/link?url=abc', summary: '', publisher: '潇湘晨报' },
+      ]),
+      resolve: vi.fn(async () => 'https://mp.weixin.qq.com/s/abc'),
+    };
+    const fetcher = {
+      fetchHtml: vi.fn(async (url: string) => ({
+        url,
+        finalUrl: url,
+        title: '微博搜索',
+        html: '<html><head><link rel="canonical" href="https://news.example.test/broken"></head></html>',
+      })),
+      fetch: vi.fn(async (url: string) => {
+        if (url === 'https://news.example.test/broken') {
+          throw new SourceFetchError('http-status', `来源返回 HTTP 403：${url}`);
+        }
+        return { url, title: '罗技广告再被指侮辱用户', text: '小狗表情包'.repeat(200), chars: 1000 };
+      }),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(fetcher.fetchHtml).toHaveBeenCalledWith('https://s.weibo.com/weibo?q=%23罗技%23', expect.anything());
+    expect(fetcher.fetch).toHaveBeenCalledTimes(2);
+    const fetched = (run?.steps.find((step) => step.name === 'source')?.metrics as { fetched?: { url: string }[] } | undefined)
+      ?.fetched;
+    expect(fetched?.[0]?.url).toBe('https://mp.weixin.qq.com/s/abc');
+  });
+
+  it('聚合页读取失败且检索无结果：两类失败原因分别记录', async () => {
+    const search = {
+      search: vi.fn(async () => []),
+      resolve: vi.fn(async (url: string) => url),
+    };
+    const fetcher = {
+      fetch: vi.fn(async (url: string) => ({ url, title: '无用', text: '正文'.repeat(300), chars: 600 })),
+      fetchHtml: vi.fn(async () => {
+        throw new SourceFetchError('http-status', '来源返回 HTTP 403：https://s.weibo.com/weibo?q=1');
+      }),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=1'], sourceTitle: '某热点标题' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.message).toContain('聚合页读取失败');
+    expect(run?.error?.message).toContain('HTTP 403');
+    expect(run?.error?.message).toContain('检索不到媒体报道');
+  });
+
+  it('搜索 API 首个命中抓取失败时尝试下一个命中', async () => {
+    const apiSearch = {
+      search: vi.fn(async () => [
+        { title: '上班族每月花3600元住酒店代租房', url: 'https://news.hnr.cn/blocked', source: 'bocha' as const },
+        { title: '上班族每月花3600元住酒店代租房，媒体跟进报道', url: 'https://news.example.test/ok', source: 'bocha' as const },
+      ]),
+    };
+    const fetcher = {
+      fetch: vi.fn(async (url: string) => {
+        if (url.includes('hnr.cn')) return { url, title: '壳页', text: '短'.repeat(20), chars: 40 };
+        return { url, title: '上班族每月花3600元住酒店代租房', text: '正文'.repeat(300), chars: 600 };
+      }),
+    };
+    const { engine, store } = makeEngine({ apiSearch, sourceFetcher: fetcher });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://m.baidu.com/s?word=%E4%B8%8A%E7%8F%AD%E6%97%8F'], sourceTitle: '上班族每月花3600元住酒店代租房' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(fetcher.fetch).toHaveBeenCalledTimes(2);
+    const fetched = (run?.steps.find((step) => step.name === 'source')?.metrics as { fetched?: { url: string }[] } | undefined)
+      ?.fetched;
+    expect(fetched?.[0]?.url).toBe('https://news.example.test/ok');
+  });
+
+  it('配置搜索 API 时优先走 API，不再调用搜狗微信', async () => {
+    const search = { search: vi.fn(async () => []), resolve: vi.fn(async (url: string) => url) };
+    const apiSearch = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户，客服回应', url: 'https://news.example.test/api', source: 'bocha' as const },
+      ]),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, apiSearch });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(apiSearch.search).toHaveBeenCalled();
+    expect(search.search).not.toHaveBeenCalled();
+    const fetched = (run?.steps.find((step) => step.name === 'source')?.metrics as { fetched?: { url: string }[] } | undefined)
+      ?.fetched;
+    expect(fetched?.[0]?.url).toBe('https://news.example.test/api');
+  });
+
+  it('搜索 API 失败时回退搜狗微信', async () => {
+    const apiSearch = {
+      search: vi.fn(async () => {
+        throw new Error('博查搜索返回 HTTP 401');
+      }),
+    };
+    const search = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户', url: 'https://weixin.sogou.com/link?url=abc', summary: '', publisher: '潇湘晨报' },
+      ]),
+      resolve: vi.fn(async () => 'https://mp.weixin.qq.com/s/abc'),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, apiSearch });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(search.search).toHaveBeenCalled();
+  });
+
+  it('搜狗微信无结果时用通用搜索兜底', async () => {
+    const search = { search: vi.fn(async () => []), resolve: vi.fn(async (url: string) => url) };
+    const webSearch = {
+      search: vi.fn(async () => [
+        { title: '罗技广告再被指侮辱用户，客服回应', url: 'https://news.example.test/web', source: 'sogou-web' as const },
+      ]),
+    };
+    const { engine, store } = makeEngine({ sourceSearch: search, webSearch });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('succeeded');
+    expect(webSearch.search).toHaveBeenCalled();
+    const fetched = (run?.steps.find((step) => step.name === 'source')?.metrics as { fetched?: { url: string }[] } | undefined)
+      ?.fetched;
+    expect(fetched?.[0]?.url).toBe('https://news.example.test/web');
+  });
+
+  it('搜狗微信与通用搜索都无结果 → 暂停并说明兜底失败', async () => {
+    const search = { search: vi.fn(async () => []), resolve: vi.fn(async (url: string) => url) };
+    const webSearch = { search: vi.fn(async () => []) };
+    const { engine, store, llmStream } = makeEngine({ sourceSearch: search, webSearch });
+    const runId = await engine.start({
+      trigger: 'manual',
+      params: {
+        ...baseParams,
+        brief: { sources: ['https://s.weibo.com/weibo?q=%23罗技%23'], sourceTitle: '罗技广告再被指侮辱用户' },
+      },
+    });
+    const run = store.get(runId);
+    expect(run?.status).toBe('failed');
+    expect(run?.error?.message).toContain('通用搜索也没有可用原文');
+    expect(llmStream).toHaveBeenCalledTimes(0);
   });
 
   it('检索不到报道 → 仍暂停写稿（source-unavailable）', async () => {

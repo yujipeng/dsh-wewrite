@@ -7,6 +7,8 @@
 import type { HotspotDigestItem, HotspotItemDigest } from '../shared/contract';
 import { streamLlmText, type PipelineLlm } from './pipeline/llm';
 import type { HostLogger } from './platform';
+import { extractOriginUrl, hostOf } from './pipeline/steps/source-extract';
+import { isAggregatorUrl } from './pipeline/steps/source-search';
 import { WewriteServiceError } from './service-errors';
 
 export interface HotspotDigestDeps {
@@ -28,15 +30,6 @@ const MAX_BODY_CHARS = 8_000;
 const MIN_BODY_CHARS = 300;
 
 // ── 抓取 + 抽取 ─────────────────────────────────────────────────────────────
-
-/** 从条目 URL 提取来源域名；非 URL 原样返回（热榜源可能给相对串或纯标识）。 */
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
 
 /** 读响应体，累计到 2MB 即取消下载（截断而非拒收）；无流时退化为整读。 */
 async function readBodyCapped(response: Response): Promise<string> {
@@ -165,71 +158,6 @@ export async function fetchArticleText(
   return article?.text ?? null;
 }
 
-const SHARE_HOSTS = new Set([
-  'weibo.com',
-  't.cn',
-  'twitter.com',
-  'x.com',
-  'facebook.com',
-  'linkedin.com',
-  'qq.com',
-  'douyin.com',
-  'weixin.qq.com',
-  'youtube.com',
-  'instagram.com',
-]);
-
-function readAttr(tag: string, name: string): string | null {
-  const match = tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'));
-  return match?.[1] ?? null;
-}
-
-function absoluteHttpUrl(value: string, baseUrl: string): string | null {
-  try {
-    const url = new URL(value, baseUrl);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * I-09：从抓取到的 HTML 里抽取原文报道链接。
- * 优先 canonical / og:url（且 host 与当前页不同）；否则取首个不同 host 的外链。
- * 只接受 http(s)，社交分享域名与图片资源跳过。
- */
-export function extractOriginUrl(html: string, baseUrl: string): string | undefined {
-  const baseHost = hostOf(baseUrl).toLowerCase();
-  const declared: string[] = [];
-  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
-    if ((readAttr(tag, 'rel') ?? '').toLowerCase() !== 'canonical') continue;
-    const href = readAttr(tag, 'href');
-    if (href) declared.push(href);
-  }
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
-    if ((readAttr(tag, 'property') ?? '').toLowerCase() !== 'og:url') continue;
-    const content = readAttr(tag, 'content');
-    if (content) declared.push(content);
-  }
-  for (const candidate of declared) {
-    const url = absoluteHttpUrl(candidate, baseUrl);
-    if (url && hostOf(url).toLowerCase() !== baseHost) return url;
-  }
-
-  for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
-    const href = readAttr(tag, 'href');
-    if (!href) continue;
-    const url = absoluteHttpUrl(href, baseUrl);
-    if (!url) continue;
-    const host = hostOf(url).toLowerCase();
-    if (!host || host === baseHost) continue;
-    if ([...SHARE_HOSTS].some((share) => host === share || host.endsWith(`.${share}`))) continue;
-    if (/\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(url)) continue;
-    return url;
-  }
-  return undefined;
-}
-
 // ── 提示词（输出行结构纯文本，不依赖 markdown 解析）────────────────────────────
 
 function digestItemSystemPrompt(): string {
@@ -350,10 +278,25 @@ export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDi
   if (!provider || !model) {
     throw new WewriteServiceError('llm-not-configured', '尚未配置默认模型：请先到「设置」里选择 AI 供应商与模型，再生成速览');
   }
-  const article = await fetchArticle(item.url, deps.fetchImpl ?? fetch);
-  const articleText = article?.text ?? null;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const article = await fetchArticle(item.url, fetchImpl);
   const originUrl = article ? extractOriginUrl(article.html, article.finalUrl) : undefined;
   const domain = hostOf(item.url);
+
+  // 热搜/搜索页本身不是原文：优先抓抽到的原文直链；抓不到就只算「读过热搜页」，
+  // 不把聚合页正文喂给模型（榜单文本混着别的条目，会污染事实）。
+  let articleText = article?.text ?? null;
+  let source: 'article' | 'hotspot' | 'title' = articleText !== null ? 'article' : 'title';
+  if (isAggregatorUrl(item.url)) {
+    const originArticle = originUrl ? await fetchArticle(originUrl, fetchImpl) : null;
+    if (originArticle?.text) {
+      articleText = originArticle.text;
+      source = 'article';
+    } else {
+      source = articleText !== null ? 'hotspot' : 'title';
+      articleText = null;
+    }
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs);
   try {
@@ -382,7 +325,6 @@ export async function digestHotspotItem(deps: HotspotDigestDeps, item: HotspotDi
     // digest-item-error 分流：LLM 供应商错误的 code/message 原样透传
     if (outcome.status === 'error') throw new WewriteServiceError(outcome.code, outcome.message);
     if (!outcome.text) throw new WewriteServiceError('digest-empty', '模型未返回任何内容，请重试');
-    const source = articleText !== null ? 'article' : 'title';
     const parsed = parseDigestOutput(outcome.text);
     const digestText = parsed.digest || outcome.text.trim();
     deps.logger.info(

@@ -89,14 +89,25 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
 
   const conflict = generation !== null && activeRun !== undefined && (activeRun.status === 'queued' || activeRun.status === 'running');
   // v0.5：来源入管线——把热点原文 URL/标题/AI 摘要带进 brief；
-  // 管线会先抓取原文再写稿，抓不到原文即暂停（不会凭标题凭空写）。
+  // 速览若已从聚合页抽出真实报道直链（originUrl），必须优先给管线，聚合页只作兜底：
+  // 管线遇到聚合页只能靠标题检索媒体，命中率远低于直接抓已抽到的原文。
+  const briefSources = (() => {
+    const urls: string[] = [];
+    const add = (url: string | undefined) => {
+      if (!url || !isHttpUrl(url) || urls.includes(url)) return;
+      urls.push(url);
+    };
+    if (analysis.status === 'ready') add(analysis.data.originUrl);
+    add(draft.sourceUrl);
+    return urls.slice(0, 3);
+  })();
   const params: RunParams = {
     topicMode: 'fixed',
     topic: draft.title,
     imageCount: 1,
     brief: {
       ...(draft.kind === 'suggested' ? { title: draft.title } : {}),
-      ...(isHttpUrl(draft.sourceUrl) ? { sources: [draft.sourceUrl] } : {}),
+      ...(briefSources.length ? { sources: briefSources } : {}),
       ...(draft.sourceTitle.trim() ? { sourceTitle: draft.sourceTitle.trim() } : {}),
       ...(analysis.status === 'ready' && analysis.data.digest.trim() ? { sourceDigest: analysis.data.digest } : {}),
     },
@@ -192,7 +203,11 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
             {analysis.status === 'ready' ? (
               <>
                 <span className="ww-topic-dialog__analysis-source">
-                  {analysis.data.source === 'article' ? '读了原文' : '仅凭标题'}
+                  {analysis.data.source === 'article'
+                    ? '读了原文'
+                    : analysis.data.source === 'hotspot'
+                      ? '仅读热搜页'
+                      : '仅凭标题'}
                 </span>
                 {analysis.data.sourceType ? (
                   <span className="ww-topic-dialog__analysis-type" data-testid="ww-topic-dialog-source-type">
@@ -254,6 +269,8 @@ export function TopicConfirmDialog({ draft, onClose }: { draft: TopicDraft; onCl
               {analysis.data.note ? <p className="ww-topic-dialog__note">{analysis.data.note}</p> : null}
               {analysis.data.source === 'title' ? (
                 <p className="ww-topic-dialog__note">未能读取原文，以上为标题解读；可直接确认，或打开原文查看细节。</p>
+              ) : analysis.data.source === 'hotspot' ? (
+                <p className="ww-topic-dialog__note">热搜页不是原文，以上为标题解读；可直接确认，或打开原文查看细节。</p>
               ) : null}
             </>
           )}

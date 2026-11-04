@@ -514,6 +514,13 @@ const CASES: EndpointCase[] = [
       { runHistoryLimit: 500 },
       { llmDefault: { provider: 'openai', model: 'deepseek-v4' } },
       { imageProviders: [{ providerId: 'doubao', credentialRef: 'WEWRITE_IMG_DOUBAO' }] },
+      {
+        searchProviders: [
+          { providerId: 'tavily', credentialRef: 'WEWRITE_SEARCH_TAVILY' },
+          { providerId: 'bocha', credentialRef: 'WEWRITE_SEARCH_BOCHA' },
+        ],
+        searchFreshness: 'oneWeek',
+      },
       {},
     ],
     invalidRequests: [

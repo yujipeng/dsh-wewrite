@@ -114,7 +114,8 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
 
   const busy = phase === 'loading';
   const failure = phase === 'error' ? describeDigestError(message) : undefined;
-  const sourceLabel = entry?.source === 'article' ? '读了原文' : '仅凭标题';
+  const sourceLabel =
+    entry?.source === 'article' ? '读了原文' : entry?.source === 'hotspot' ? '仅读热搜页' : '仅凭标题';
   const sourceTypeLabel = entry?.sourceType
     ? ({ hot: '热点', demand: '高频需求', evergreen: '常青' } as const)[entry.sourceType]
     : undefined;
@@ -193,6 +194,8 @@ export function HotspotItemDigest({ item }: { item: HotspotItem }) {
             {entry.note ? <p className="ww-hotspot__digest-note">{entry.note}</p> : null}
             {entry.source === 'title' ? (
               <p className="ww-hotspot__digest-note">未读原文，解读仅供参考，请以原文为准</p>
+            ) : entry.source === 'hotspot' ? (
+              <p className="ww-hotspot__digest-note">热搜页不是原文，解读仅供参考，请以原文为准</p>
             ) : null}
           </>
         ) : null}

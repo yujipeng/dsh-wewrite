@@ -5,7 +5,7 @@ import { ErrorNote, SkeletonBlock } from '../components/bits';
 import { useStore } from '../store';
 import { DisciplineSection, ProxySection, WechatSection } from './settings-sections';
 import type { SettingsGroup } from './settings-sections';
-import { ImagesSection, LlmSection } from './settings-models';
+import { ImagesSection, LlmSection, SearchSection } from './settings-models';
 
 /**
  * 设置（DESIGN §9.6）：左栏 5 组竖导航 + 右侧内容区（每组一屏，避免长表单滚动迷失）。
@@ -15,6 +15,7 @@ const GROUPS: ReadonlyArray<{ id: SettingsGroup; label: string; icon: IconName; 
   { id: 'wechat', label: '公众号', icon: 'message-circle', hint: 'AppID / AppSecret / 作者名' },
   { id: 'llm', label: '模型服务', icon: 'cpu', hint: '复用宿主供应商与模型' },
   { id: 'images', label: '图片供应商', icon: 'image', hint: '10 家可选 / 默认链 9 家' },
+  { id: 'search', label: '搜索 API', icon: 'search', hint: '博查 · 热点原文检索' },
   { id: 'proxy', label: 'API 代理', icon: 'globe', hint: '微信接口统一出口 + 连接测试' },
   { id: 'discipline', label: '发布纪律', icon: 'shield', hint: '草稿箱锁定，无自动群发' },
 ];
@@ -69,6 +70,8 @@ export function SettingsPanel() {
           <LlmSection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
         ) : group === 'images' ? (
           <ImagesSection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
+        ) : group === 'search' ? (
+          <SearchSection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
         ) : group === 'proxy' ? (
           <ProxySection config={snapshot.data.config} rpc={rpc} onSaved={refreshSnapshot} />
         ) : (

@@ -12,7 +12,7 @@ import { Icon } from '../components/Icon';
  * 代理 URL 字段级校验；40164 诊断展示出口 IP 与两条出路（AC-6）。
  */
 
-export type SettingsGroup = 'wechat' | 'llm' | 'images' | 'proxy' | 'discipline';
+export type SettingsGroup = 'wechat' | 'llm' | 'images' | 'search' | 'proxy' | 'discipline';
 
 /** 风格基准的编辑上限（与 shared/schema-base.ts 的校验一致）。 */
 const STYLE_GUIDE_MAX = 4000;

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractOriginUrl, fetchArticleText, parseDigestOutput } from '@/host/hotspot-digest';
+import { fetchArticleText, parseDigestOutput } from '@/host/hotspot-digest';
+import { extractOriginUrl } from '@/host/pipeline/steps/source-extract';
 import { WeWriteService } from '@/host/service';
 import { WewriteServiceError } from '@/host/service-errors';
 import type { LlmService } from '@/host/platform';
@@ -226,6 +227,46 @@ describe('digestHotspotItem（uiux v0.3 §1 服务层）', () => {
     expect(user).toContain('分析角度：');
     expect(user).toContain('不得补充外部信息');
     expect(user).not.toContain('标题解读：');
+  });
+
+  it('聚合页：抽出原文直链并抓到正文 → source=article（不再把热搜页当原文）', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('s.weibo.com')) {
+        return htmlResponse(
+          `<html><head><link rel="canonical" href="https://news.example.test/a"></head><body><article>${LONG_BODY}</article></body></html>`,
+        );
+      }
+      return htmlResponse(`<html><body><article>${LONG_BODY}</article></body></html>`);
+    });
+    const llm = makeScriptedLlm(async function* () {
+      yield { type: 'text-delta', index: 0, text: '这条在讲什么：媒体已报道。' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    });
+    const service = await makeService(llm.llm, { fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const digest = await service.digestHotspotItem({ ...ITEM, url: 'https://s.weibo.com/weibo?q=1' });
+
+    expect(digest.source).toBe('article');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(userTextOf(llm.calls[0])).toContain('推理成本');
+    expect(userTextOf(llm.calls[0])).not.toContain('标题解读：');
+  });
+
+  it('聚合页：抽不到原文直链 → source=hotspot，且不把热搜页文本喂给模型', async () => {
+    const fetchImpl = fetchOf(`<html><body><article>${LONG_BODY}</article></body></html>`);
+    const llm = makeScriptedLlm(async function* () {
+      yield { type: 'text-delta', index: 0, text: '标题解读：某引擎开源。' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    });
+    const service = await makeService(llm.llm, { fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const digest = await service.digestHotspotItem({ ...ITEM, url: 'https://s.weibo.com/weibo?q=1' });
+
+    expect(digest.source).toBe('hotspot');
+    const user = userTextOf(llm.calls[0]);
+    expect(user).toContain('标题解读：');
+    expect(user).not.toContain('推理成本');
   });
 
   it('title 降级：抓取失败（404）时仅凭标题+域名，source=title，提示用标题解读行结构', async () => {

@@ -13,8 +13,18 @@ export interface SourceDocument {
   readonly chars: number;
 }
 
+/** 未提取正文的原始页面：聚合页抽原文链接需要 HTML 与最终 URL。 */
+export interface RawSourcePage {
+  readonly url: string;
+  readonly finalUrl: string;
+  readonly title: string;
+  readonly html: string;
+}
+
 export interface SourceFetcher {
   fetch(url: string, signal?: AbortSignal): Promise<SourceDocument>;
+  /** 抓原始 HTML（不做正文阈值校验）；聚合页 → 原文直链抽取用。 */
+  fetchHtml?(url: string, signal?: AbortSignal): Promise<RawSourcePage>;
 }
 
 export type SourceFetchErrorCode = 'timeout' | 'network' | 'http-status' | 'unsupported-type' | 'too-large' | 'empty-content' | 'shell-page';
@@ -118,12 +128,17 @@ function normalizeText(text: string): string {
     .trim();
 }
 
-/** 提取可读正文：优先 article / 公众号 js_content / main，兜底 body。 */
-export function extractReadableText(html: string): { title: string; text: string } {
+/** 提取页面标题（title / og:title）；正文抽取与聚合页诊断共用。 */
+export function extractTitle(html: string): string {
   const titleMatch =
     html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) ??
     html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i);
-  const title = decodeEntities(titleMatch?.[1] ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return decodeEntities(titleMatch?.[1] ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/** 提取可读正文：优先 article / 公众号 js_content / main，兜底 body。 */
+export function extractReadableText(html: string): { title: string; text: string } {
+  const title = extractTitle(html);
   const withoutNoise = html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -152,7 +167,7 @@ export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}):
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
-  const fetchOnce = async (url: string, attempt: FetchAttempt, signal: AbortSignal | undefined): Promise<SourceDocument> => {
+  const fetchRaw = async (url: string, attempt: FetchAttempt, signal: AbortSignal | undefined): Promise<RawSourcePage> => {
     const controller = new AbortController();
     const forwardAbort = () => controller.abort();
     signal?.addEventListener('abort', forwardAbort, { once: true });
@@ -190,22 +205,28 @@ export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}):
       if (buffer.byteLength > maxBytes) {
         throw new SourceFetchError('too-large', `来源页面过大（>${maxBytes} 字节），未做正文提取：${url}`);
       }
-      const { title, text } = extractReadableText(new TextDecoder('utf-8').decode(buffer));
-      if (text.length < MIN_CONTENT_CHARS) {
-        throw new SourceFetchError(
-          'empty-content',
-          `来源正文过短（${text.length} 字符 < ${MIN_CONTENT_CHARS}），可能是登录墙/搜索壳/反爬页：${url}`,
-        );
-      }
-      const doc: SourceDocument = { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
-      if (!isUsableSourceDocument(doc)) {
-        throw new SourceFetchError('shell-page', `抓到的是检索/壳页面而不是文章（${title || '无标题'}）：${url}`);
-      }
-      return doc;
+      const html = new TextDecoder('utf-8').decode(buffer);
+      return { url, finalUrl: response.url || url, title: extractTitle(html), html };
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', forwardAbort);
     }
+  };
+
+  const fetchOnce = async (url: string, attempt: FetchAttempt, signal: AbortSignal | undefined): Promise<SourceDocument> => {
+    const page = await fetchRaw(url, attempt, signal);
+    const { title, text } = extractReadableText(page.html);
+    if (text.length < MIN_CONTENT_CHARS) {
+      throw new SourceFetchError(
+        'empty-content',
+        `来源正文过短（${text.length} 字符 < ${MIN_CONTENT_CHARS}），可能是登录墙/搜索壳/反爬页：${url}`,
+      );
+    }
+    const doc: SourceDocument = { url, title, text: text.slice(0, MAX_CONTENT_CHARS), chars: text.length };
+    if (!isUsableSourceDocument(doc)) {
+      throw new SourceFetchError('shell-page', `抓到的是检索/壳页面而不是文章（${title || '无标题'}）：${url}`);
+    }
+    return doc;
   };
 
   return {
@@ -225,6 +246,23 @@ export function createHttpSourceFetcher(options: HttpSourceFetcherOptions = {}):
         }
       }
       throw lastError ?? new SourceFetchError('empty-content', `来源正文过短：${url}`);
+    },
+
+    async fetchHtml(url, signal) {
+      // 聚合页只取 HTML 抽原文链接：不套正文阈值，换 UA 只因 HTTP/网络错误重试一次。
+      let lastError: SourceFetchError | undefined;
+      for (const attempt of FETCH_ATTEMPTS) {
+        try {
+          return await fetchRaw(url, attempt, signal);
+        } catch (error) {
+          lastError =
+            error instanceof SourceFetchError
+              ? error
+              : new SourceFetchError('network', `抓取来源失败：${error instanceof Error ? error.message : String(error)}（${url}）`);
+          if (lastError.code === 'timeout') throw lastError;
+        }
+      }
+      throw lastError ?? new SourceFetchError('network', `抓取来源失败：${url}`);
     },
   };
 }

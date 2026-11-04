@@ -481,7 +481,8 @@ a.ww-suggest__source:hover { color: var(--ww-fg-secondary); text-decoration: und
   color: var(--ww-success);
 }
 
-.ww-hotspot__digest-source--title {
+.ww-hotspot__digest-source--title,
+.ww-hotspot__digest-source--hotspot {
   background: var(--ww-surface-sunken);
   color: var(--ww-fg-tertiary);
 }

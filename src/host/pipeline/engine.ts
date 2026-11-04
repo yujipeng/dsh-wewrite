@@ -11,7 +11,18 @@ import type { RunRecord, StepRecord } from '../domain';
 import { draftUserPrompt, outlineUserPrompt, pipelineSystemPrompt, streamLlmText, type LaunchBriefForPrompt, type PipelineLlm } from './llm';
 import { isSourceUrlVisible, type GateClaim } from './steps/gates';
 import { createHttpSourceFetcher, isUsableSourceDocument, type SourceDocument, type SourceFetcher } from './steps/source';
-import { createSogouWechatSearcher, isAggregatorUrl, isArticleUrl, pickBestHit, type SourceSearcher } from './steps/source-search';
+import { createWebSearcher, type WebSearcher } from './steps/web-search';
+import { extractOriginUrl } from './steps/source-extract';
+import {
+  buildSearchQueries,
+  createSogouWechatSearcher,
+  isAggregatorUrl,
+  isArticleUrl,
+  pickBestHit,
+  rankHitsByTitle,
+  type SourceSearchHit,
+  type SourceSearcher,
+} from './steps/source-search';
 import { type ResearchNotes } from './steps/research';
 import { DEFAULT_REVIEW_THRESHOLD, judgeEditorialReview, type EditorialReview } from './steps/editorial-review';
 import type { ImagePromptPlan } from '../images/plan';
@@ -78,6 +89,10 @@ export interface PipelineDeps {
   readonly sourceFetcher?: SourceFetcher;
   /** 热搜聚合页的媒体报道检索器（默认搜狗微信；测试可注入桩）。 */
   readonly sourceSearch?: SourceSearcher;
+  /** 通用搜索引擎兜底（默认搜狗网页 → Bing；搜狗微信无结果时使用）。 */
+  readonly webSearch?: WebSearcher;
+  /** 付费搜索 API（配置了博查 key 时由 service 装配；优先于抓取式搜索）。 */
+  readonly apiSearch?: WebSearcher;
   /** 研究底稿抽取器（service 装配；未注入时 research 步跳过，便于单测聚焦）。 */
   readonly research?: {
     run(input: {
@@ -275,6 +290,8 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
     let researchNotes: ResearchNotes | undefined;
     const sourceFetcher = deps.sourceFetcher ?? createHttpSourceFetcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
     const sourceSearch = deps.sourceSearch ?? createSogouWechatSearcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
+    const webSearch = deps.webSearch ?? createWebSearcher(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {});
+    const apiSearch = deps.apiSearch;
     /** 供 outline/draft 注入原文与研究底稿；source/research 未跑时回退原 brief。 */
     const promptBrief = (): LaunchBriefForPrompt | undefined => {
       const base = params.brief;
@@ -345,34 +362,36 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
           } else {
             const failures: string[] = [];
             const searchTitle = params.brief?.sourceTitle?.trim() || topic;
-            let searched = false;
-            for (const url of sources) {
-              if (signal.aborted) throwAborted();
-              const candidates: string[] = [];
-              if (isAggregatorUrl(url)) {
-                // 热搜/搜索页不是原文：按标题检索媒体报道，再抓 mp.weixin.qq.com 正文。
-                searched = true;
+            const searchQueries = buildSearchQueries(searchTitle, topic);
+            /** 统一搜索入口：按查询词回退，返回命中 + 最后一次错误。 */
+            const searchVia = async (
+              searcher: {
+                search(
+                  query: string,
+                  limit: number,
+                  searchSignal?: AbortSignal,
+                ): Promise<ReadonlyArray<{ readonly title: string; readonly url: string }>>;
+              },
+              queries: readonly string[],
+            ): Promise<{ hits: SourceSearchHit[]; error?: string }> => {
+              let lastError: string | undefined;
+              for (const query of queries) {
+                if (signal.aborted) throwAborted();
                 try {
-                  const hits = await sourceSearch.search(searchTitle, 5, signal);
-                  const best = pickBestHit(hits, searchTitle);
-                  if (!best) {
-                    failures.push(`来源是热搜聚合页，按标题「${searchTitle}」检索不到媒体报道：${url}`);
-                  } else {
-                    const resolved = await sourceSearch.resolve(best.url, signal);
-                    if (isArticleUrl(resolved)) candidates.push(resolved);
-                    else failures.push(`检索命中仍是搜索/中转页，未拿到文章直链：${resolved}`);
-                    const second = hits.find((hit) => hit.url !== best.url);
-                    if (second) {
-                      const resolvedSecond = await sourceSearch.resolve(second.url, signal);
-                      if (isArticleUrl(resolvedSecond)) candidates.push(resolvedSecond);
-                    }
+                  const found = await searcher.search(query, 5, signal);
+                  if (found.length) {
+                    return {
+                      hits: found.map((hit) => ({ title: hit.title, url: hit.url, summary: '', publisher: '' })),
+                    };
                   }
                 } catch (error) {
-                  failures.push(`热搜原文检索失败：${error instanceof Error ? error.message : String(error)}（${url}）`);
+                  lastError = error instanceof Error ? error.message : String(error);
                 }
-              } else {
-                candidates.push(url);
               }
+              return lastError ? { hits: [], error: lastError } : { hits: [] };
+            };
+            /** 依次抓取候选，任一成功即返回 true；失败原因全部记入 failures。 */
+            const tryFetchCandidates = async (candidates: readonly string[]): Promise<boolean> => {
               for (const candidate of candidates) {
                 if (signal.aborted) throwAborted();
                 try {
@@ -381,10 +400,97 @@ export function createPipelineEngine(deps: PipelineDeps): PipelineEngine {
                     throw new Error(`抓到的是检索/壳页面而不是文章（${doc.title || '无标题'}，${doc.chars} 字）：${doc.url}`);
                   }
                   if (!sourceDocs.some((existing) => existing.url === doc.url)) sourceDocs.push(doc);
-                  break;
+                  return true;
                 } catch (error) {
                   failures.push(error instanceof Error ? error.message : String(error));
                 }
+              }
+              return false;
+            };
+
+            let searched = false;
+            for (const url of sources) {
+              if (signal.aborted) throwAborted();
+              if (!isAggregatorUrl(url)) {
+                // 非聚合页：原样交给抓取器，由其判定壳页/正文过短（不在这里预筛）。
+                await tryFetchCandidates([url]);
+                continue;
+              }
+
+              // 热搜/搜索页不是原文：按成本递增依次尝试——
+              // 聚合页原文直链 → 搜索 API → 搜狗微信 → 抓取式通用搜索。
+              searched = true;
+
+              const pageCandidates: string[] = [];
+              if (sourceFetcher.fetchHtml) {
+                try {
+                  const page = await sourceFetcher.fetchHtml(url, signal);
+                  const origin = extractOriginUrl(page.html, page.finalUrl);
+                  if (origin) pageCandidates.push(origin);
+                  else failures.push(`聚合页里没有可识别的原文链接：${url}`);
+                } catch (error) {
+                  failures.push(`聚合页读取失败：${error instanceof Error ? error.message : String(error)}`);
+                }
+              } else {
+                failures.push(`来源抓取器不支持读取原始 HTML，无法从聚合页抽原文直链：${url}`);
+              }
+              if (pageCandidates.length && (await tryFetchCandidates(pageCandidates))) continue;
+
+              if (apiSearch) {
+                const apiFound = await searchVia(apiSearch, searchQueries);
+                const bestApi = pickBestHit(apiFound.hits, searchTitle);
+                if (bestApi) {
+                  // 命中可能抓不到（反爬/壳页）：按匹配度取前 3 条依次抓，任一成功即可。
+                  const candidates = rankHitsByTitle(apiFound.hits, searchTitle)
+                    .map((hit) => hit.url)
+                    .slice(0, 3);
+                  if (await tryFetchCandidates(candidates)) continue;
+                } else if (apiFound.hits.length) {
+                  failures.push(`搜索 API 命中的 ${apiFound.hits.length} 条结果与标题「${searchTitle}」不匹配`);
+                } else {
+                  failures.push(`搜索 API 没有结果${apiFound.error ? `：${apiFound.error}` : ''}`);
+                }
+              }
+
+              const wechat = await searchVia(sourceSearch, searchQueries);
+              if (wechat.hits.length) {
+                const best = pickBestHit(wechat.hits, searchTitle);
+                const resolvedCandidates: string[] = [];
+                if (best) {
+                  const resolved = await sourceSearch.resolve(best.url, signal);
+                  if (isArticleUrl(resolved)) resolvedCandidates.push(resolved);
+                  else failures.push(`检索命中仍是搜索/中转页，未拿到文章直链：${resolved}`);
+                  for (const hit of wechat.hits) {
+                    if (resolvedCandidates.length >= 3) break;
+                    if (hit.url === best.url) continue;
+                    const resolvedAlt = await sourceSearch.resolve(hit.url, signal);
+                    if (isArticleUrl(resolvedAlt) && !resolvedCandidates.includes(resolvedAlt)) {
+                      resolvedCandidates.push(resolvedAlt);
+                    }
+                  }
+                } else {
+                  failures.push(`检索到 ${wechat.hits.length} 条报道，但没有一条与标题「${searchTitle}」足够匹配：${url}`);
+                }
+                if (resolvedCandidates.length && (await tryFetchCandidates(resolvedCandidates))) continue;
+              } else {
+                const detail = wechat.error ? `；最后一次检索失败：${wechat.error}` : '';
+                failures.push(
+                  `按标题「${searchTitle}」检索不到媒体报道（尝试 ${searchQueries.length} 个查询词）${detail}：${url}`,
+                );
+              }
+
+              const webFound = await searchVia(webSearch, searchQueries);
+              const bestWeb = pickBestHit(webFound.hits, searchTitle);
+              if (bestWeb) {
+                // 同样多候选：抓不到就换下一条，避免单条反爬直接断档。
+                const candidates = rankHitsByTitle(webFound.hits, searchTitle)
+                  .map((hit) => hit.url)
+                  .slice(0, 3);
+                if (await tryFetchCandidates(candidates)) continue;
+              } else if (webFound.hits.length) {
+                failures.push(`通用搜索命中的 ${webFound.hits.length} 条结果与标题「${searchTitle}」不匹配`);
+              } else {
+                failures.push(`通用搜索也没有可用原文${webFound.error ? `：${webFound.error}` : ''}`);
               }
             }
             if (!sourceDocs.length) {

@@ -86,22 +86,64 @@ function normalizedChars(text: string): string[] {
   return [...text.replace(/[\s\p{P}]/gu, '')];
 }
 
-/** 按标题字符重叠度选最匹配的报道（同分取靠前）。 */
+/** 标题字符重叠下限：低于此比例视为「检索到的是别的事」，不能当原文抓。 */
+export const MIN_TITLE_OVERLAP = 0.4;
+
+/**
+ * 按标题字符重叠度选最匹配的报道（同分取靠前）。
+ * 重叠率低于 MIN_TITLE_OVERLAP 时返回 undefined——宁可暂停，也不把无关报道当原文。
+ */
 export function pickBestHit(hits: readonly SourceSearchHit[], title: string): SourceSearchHit | undefined {
   if (!hits.length) return undefined;
+  const ranked = rankHitsByTitle(hits, title);
+  if (!ranked.length) return undefined;
   const target = new Set(normalizedChars(title));
-  let best = hits[0];
-  let bestScore = -1;
-  for (const hit of hits) {
+  const best = ranked[0];
+  if (!target.size) return undefined;
+  const chars = new Set(normalizedChars(best.title));
+  let score = 0;
+  for (const ch of target) if (chars.has(ch)) score += 1;
+  return score / target.size >= MIN_TITLE_OVERLAP ? best : undefined;
+}
+
+/** 按标题字符重叠度降序排列命中（重叠不足阈值的也保留，供多候选逐个抓取）。 */
+export function rankHitsByTitle(hits: readonly SourceSearchHit[], title: string): SourceSearchHit[] {
+  const target = new Set(normalizedChars(title));
+  const scored = hits.map((hit) => {
     const chars = new Set(normalizedChars(hit.title));
     let score = 0;
     for (const ch of target) if (chars.has(ch)) score += 1;
-    if (score > bestScore) {
-      best = hit;
-      bestScore = score;
-    }
+    return { hit, ratio: target.size ? score / target.size : 0 };
+  });
+  scored.sort((left, right) => right.ratio - left.ratio);
+  return scored.map((entry) => entry.hit);
+}
+
+/** 热搜标题 → 检索关键词：去掉话题井号、引号、平台词与标点。 */
+export function cleanSearchKeyword(raw: string): string {
+  return raw
+    .replace(/[#＃]([^#＃]*)[#＃]/g, '$1')
+    .replace(/[“”"'‘’「」『』《》]/g, '')
+    .replace(/(?:登上|冲上|上了|霸榜)?(?:微博|抖音|百度|头条)?热搜(?:榜)?/g, ' ')
+    .replace(/[|｜:：·•、，,。.!！?？()（）[\]【】]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 检索词回退链：原题 → 清洗后的核心词 → 话题词。
+ * 去重、丢弃少于 2 字的词（单字检索噪声太大）。
+ */
+export function buildSearchQueries(sourceTitle: string, topic: string): string[] {
+  const raw = sourceTitle.trim();
+  const cleaned = cleanSearchKeyword(raw);
+  const topicCleaned = cleanSearchKeyword(topic);
+  const queries = [raw, cleaned, topicCleaned].filter((query) => [...query].length >= 2);
+  if (!queries.length) {
+    const fallback = (raw || topic).trim();
+    return fallback ? [fallback] : [];
   }
-  return best;
+  return [...new Set(queries)];
 }
 
 export interface SogouSearcherOptions {
@@ -109,6 +151,12 @@ export interface SogouSearcherOptions {
   readonly timeoutMs?: number;
   /** UA 池（测试可注入固定值，避免随机导致断言不稳）。 */
   readonly userAgents?: readonly string[];
+}
+
+/** 是否为搜狗反爬/验证码页（正常结果页不含这些标记）。 */
+export function isSogouBlockPage(html: string): boolean {
+  if (/news-list/i.test(html)) return false;
+  return /antispider|请输入验证码|访问过于频繁|安全验证|账号异常|输入验证码/i.test(html);
 }
 
 /** 搜狗微信检索器：UA 池 + Referer；检索失败抛错，由管线收口为暂停。 */
@@ -147,7 +195,11 @@ export function createSogouWechatSearcher(options: SogouSearcherOptions = {}): S
       );
       if (!response.ok) throw new Error(`搜狗微信检索返回 HTTP ${response.status}`);
       const html = await response.text();
-      return parseSogouResults(html).slice(0, Math.max(1, limit));
+      const hits = parseSogouResults(html);
+      if (!hits.length && isSogouBlockPage(html)) {
+        throw new Error('搜狗微信返回验证码/风控页（未解析到任何结果）');
+      }
+      return hits.slice(0, Math.max(1, limit));
     },
 
     async resolve(url, signal) {

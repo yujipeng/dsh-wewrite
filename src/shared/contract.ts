@@ -104,6 +104,23 @@ const ConfigSetRequestSchema = z.strictObject({
   hotspotAggregatorUrl: z.string().optional(),
   imageProviders: z.array(ImageProviderConfigSchema).optional(),
   crossrefEnabled: z.boolean().optional(),
+  searchApi: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      freshness: z.enum(['oneDay', 'oneWeek', 'oneMonth', 'noLimit']).optional(),
+      credentialRef: z.string(),
+    })
+    .optional(),
+  searchProviders: z
+    .array(
+      z.strictObject({
+        providerId: z.enum(['bocha', 'tavily', 'jina', 'exa', 'metaso']),
+        credentialRef: z.string().min(1),
+        baseUrl: z.string().optional(),
+      }),
+    )
+    .optional(),
+  searchFreshness: z.enum(['oneDay', 'oneWeek', 'oneMonth', 'noLimit']).optional(),
 });
 
 export const rpcContract: Record<string, { readonly request: z.ZodType; readonly response: z.ZodType }> = {

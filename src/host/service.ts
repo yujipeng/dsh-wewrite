@@ -10,6 +10,9 @@ import { digestHotspotItem as runHotspotDigest } from './hotspot-digest';
 import { analyzeHotspot as runHotspotAnalyze } from './hotspot-analyze';
 import { createPipelineEngine, pruneTerminalRuns, type PipelineEngine, type RunStore } from './pipeline/engine';
 import { extractResearchNotes } from './pipeline/steps/research';
+import { createChainedApiSearcher, type ApiSearchEntry } from './pipeline/steps/search-providers';
+import type { WebSearchHit } from './pipeline/steps/web-search';
+import { SEARCH_PROVIDER_IDS, searchCredentialRef, type SearchProviderId } from '../shared/search-provider-ids';
 import { suggestTitles } from './pipeline/steps/title';
 import { aggregateHotspots, buildHotspotSources } from './pipeline/steps/topic';
 import { suggestTopics as runSuggestTopics } from './suggest-topics';
@@ -115,6 +118,9 @@ export class WeWriteService {
       renderer: { convert: ({ markdown, theme }) => convertArticle({ markdown, theme }) },
       topicSource: { fetch: async (limit: number) => [...(await this.fetchHotspots(limit))] },
       ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
+      apiSearch: {
+        search: (query, limit, signal) => this.searchWithApi(query, limit, signal),
+      },
       research: {
         run: (input) => extractResearchNotes(deps.llm as unknown as import('./pipeline/llm').PipelineLlm, input),
       },
@@ -734,11 +740,51 @@ export class WeWriteService {
     return { ok: true };
   }
 
+  /** 搜索 API 链：按配置顺序依次尝试；某家失败/无结果自动回退下一家。 */
+  private async searchWithApi(query: string, limit: number, signal?: AbortSignal): Promise<WebSearchHit[]> {
+    const entries = this.searchProviderEntries();
+    if (!entries.length) return [];
+    const resolved: ApiSearchEntry[] = [];
+    for (const entry of entries) {
+      let apiKey = '';
+      try {
+        apiKey = unwrapCredential(await Promise.resolve(this.deps.credentials.resolve(entry.credentialRef))) ?? '';
+      } catch {
+        apiKey = '';
+      }
+      if (!apiKey) continue;
+      resolved.push({
+        providerId: entry.providerId,
+        apiKey,
+        ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
+      });
+    }
+    if (!resolved.length) throw new Error('搜索 API 未配置任何 API Key');
+    return createChainedApiSearcher(resolved, {
+      ...(this.settings.searchFreshness ? { freshness: this.settings.searchFreshness } : {}),
+      ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
+    }).search(query, limit, signal);
+  }
+
+  /** 搜索链配置：新字段优先；为空时兼容上一版的单家博查配置。 */
+  private searchProviderEntries(): Array<{ providerId: SearchProviderId; credentialRef: string; baseUrl?: string }> {
+    const configured = this.settings.searchProviders ?? [];
+    if (configured.length) return configured.map((entry) => ({ ...entry }));
+    const legacy = this.settings.searchApi;
+    if (legacy && legacy.enabled !== false) {
+      return [{ providerId: 'bocha', credentialRef: legacy.credentialRef || CREDENTIAL_REFS.searchApi }];
+    }
+    return [];
+  }
+
   async describeCredentials(): Promise<Record<string, { configured: boolean; writable: boolean }>> {
     // 回显面按「微信 secret + 全部 10 家图片供应商 + 链里自定义 credentialRef」全量描述：
     // 只遍历默认链会漏掉 qwen_image 等可选供应商（设置页的已配置徽标随之消失）。
     const refs = new Set<string>([
       CREDENTIAL_REFS.wechatSecret,
+      this.settings.searchApi?.credentialRef ?? CREDENTIAL_REFS.searchApi,
+      ...SEARCH_PROVIDER_IDS.map(searchCredentialRef),
+      ...(this.settings.searchProviders ?? []).map((entry) => entry.credentialRef),
       ...IMAGE_PROVIDER_IDS.map(CREDENTIAL_REFS.image),
       ...this.settings.imageProviders.map((entry) => entry.credentialRef),
     ]);

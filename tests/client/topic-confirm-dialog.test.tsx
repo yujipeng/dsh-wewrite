@@ -127,6 +127,33 @@ describe('TopicConfirmDialog', () => {
     });
   });
 
+  it('速览已抽出原文直链：brief.sources 优先 originUrl，聚合页作兜底', async () => {
+    mocks.call.mockImplementation(async () => ({
+      ...analysisOk(),
+      originUrl: 'https://news.example.test/article',
+    }));
+
+    render(<TopicConfirmDialog draft={hotspotDraft} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/AI 简介/)).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: '确认写这个' }));
+
+    expect(mocks.startGeneration).toHaveBeenCalledWith(
+      {
+        topicMode: 'fixed',
+        topic: '某热点',
+        imageCount: 1,
+        brief: {
+          sources: ['https://news.example.test/article', 'https://s.weibo.com/weibo?q=1'],
+          sourceTitle: '某热点原标题',
+          sourceDigest: '这条在讲什么：AI 简介。\n· 要点：成本降到三成',
+        },
+      },
+      '某热点',
+      { background: true },
+    );
+  });
+
   it('无进行中任务：确认写这个 → 后台启动并关闭', async () => {
     const onClose = vi.fn();
     render(<TopicConfirmDialog draft={hotspotDraft} onClose={onClose} />);

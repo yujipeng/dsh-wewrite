@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { ImageProviderConfigSchema, LlmOverrideSchema, RUN_STATUSES, RunParamsSchema } from '../shared/contract';
 import { isValidTimeZone } from '../shared/contract';
 import { EMPTY_WRITING_PROFILE, WritingProfileSchema } from '../shared/schema-base';
+import { SEARCH_FRESHNESS_VALUES, SEARCH_PROVIDER_IDS } from '../shared/search-provider-ids';
 
 const SlugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'slug 必须是 kebab-case' });
 const TimeZoneSchema = z.string().refine(isValidTimeZone, { message: '必须是合法 IANA 时区' });
@@ -46,6 +47,25 @@ export const SettingsRecordSchema = z.strictObject({
   maxImageCost: z.number().min(0).optional(),
   /** I-23：Crossref DOI 核对开关（默认关闭，不发起任何外部请求）。 */
   crossrefEnabled: z.boolean().optional(),
+  /** 搜索 API（博查）：配置 key 后优先用于热点原文检索；缺省只用抓取式搜索。 */
+  searchApi: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      freshness: z.enum(['oneDay', 'oneWeek', 'oneMonth', 'noLimit']).optional(),
+      credentialRef: z.string().default('WEWRITE_SEARCH_BOCHA'),
+    })
+    .optional(),
+  /** 搜索 API 链（类似图片供应商）：可配多家、按顺序回退；空数组即不启用。 */
+  searchProviders: z
+    .array(
+      z.strictObject({
+        providerId: z.enum(SEARCH_PROVIDER_IDS),
+        credentialRef: z.string().min(1),
+        baseUrl: z.string().optional(),
+      }),
+    )
+    .default([]),
+  searchFreshness: z.enum(SEARCH_FRESHNESS_VALUES).optional(),
 });
 export type SettingsRecord = z.infer<typeof SettingsRecordSchema>;
 

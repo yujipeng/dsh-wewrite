@@ -36,7 +36,7 @@ export const HotspotItemDigestSchema = z.strictObject({
   digest: z.string().min(1).max(4000),
   /** 2–4 条可写角度；列表速览与确认弹层共用同一份数据。 */
   angles: z.array(z.string().min(1).max(200)).max(4),
-  source: z.enum(['article', 'title']),
+  source: z.enum(['article', 'hotspot', 'title']),
   model: z.string(),
   generatedAtIso: z.iso.datetime(),
   /** I-09：原文报道链接（canonical/首个外链，仅 http(s)）。 */
@@ -250,6 +250,23 @@ export const ConfigSettingsViewSchema = z.strictObject({
   imageCostPerImage: z.number().min(0).optional(),
   maxImageCost: z.number().min(0).optional(),
   crossrefEnabled: z.boolean().optional(),
+  searchApi: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      freshness: z.enum(['oneDay', 'oneWeek', 'oneMonth', 'noLimit']).optional(),
+      credentialRef: z.string(),
+    })
+    .optional(),
+  searchProviders: z
+    .array(
+      z.strictObject({
+        providerId: z.enum(['bocha', 'tavily', 'jina', 'exa', 'metaso']),
+        credentialRef: z.string(),
+        baseUrl: z.string().optional(),
+      }),
+    )
+    .default([]),
+  searchFreshness: z.enum(['oneDay', 'oneWeek', 'oneMonth', 'noLimit']).optional(),
 });
 export type ConfigSettingsView = z.infer<typeof ConfigSettingsViewSchema>;
 

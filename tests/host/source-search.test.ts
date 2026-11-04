@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSogouWechatSearcher, isAggregatorUrl, parseSogouResults, pickBestHit } from '@/host/pipeline/steps/source-search';
+import { buildSearchQueries, cleanSearchKeyword, createSogouWechatSearcher, isAggregatorUrl, parseSogouResults, pickBestHit } from '@/host/pipeline/steps/source-search';
 
 /**
  * 热搜聚合页 → 媒体报道解析：
@@ -44,8 +44,42 @@ describe('parseSogouResults / pickBestHit', () => {
     expect(pickBestHit(hits, '罗技广告再被指侮辱用户')?.publisher).toBe('潇湘晨报');
   });
 
+  it('标题重叠不足时返回 undefined（不把无关报道当原文）', () => {
+    const hits = parseSogouResults(SOGOU_HTML);
+    expect(pickBestHit(hits, '英伟达发布新一代显卡')).toBeUndefined();
+  });
+
   it('无结果时返回 undefined', () => {
     expect(pickBestHit([], '罗技')).toBeUndefined();
+  });
+});
+
+describe('cleanSearchKeyword / buildSearchQueries', () => {
+  it('去掉话题井号、引号与“热搜”字样', () => {
+    expect(cleanSearchKeyword('#罗技广告再被指侮辱用户#')).toBe('罗技广告再被指侮辱用户');
+    expect(cleanSearchKeyword('“罗技”广告又上热搜')).toBe('罗技广告又上');
+  });
+
+  it('回退链：原题 → 清洗词 → 话题词，去重且保留原题', () => {
+    const queries = buildSearchQueries('“罗技”广告再被指侮辱用户（热搜）', '罗技广告');
+    expect(queries[0]).toBe('“罗技”广告再被指侮辱用户（热搜）');
+    expect(queries).toContain('罗技广告再被指侮辱用户');
+    expect(queries).toContain('罗技广告');
+    expect(new Set(queries).size).toBe(queries.length);
+  });
+});
+
+describe('createSogouWechatSearcher.search', () => {
+  it('返回验证码页且无结果 → 抛出可读错误（区分风控与真的 0 条）', async () => {
+    const searcher = createSogouWechatSearcher({
+      fetchImpl: (async () =>
+        new Response('<html><body>请输入验证码</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        })) as typeof fetch,
+      userAgents: ['test-ua'],
+    });
+    await expect(searcher.search('罗技', 5)).rejects.toThrow('验证码');
   });
 });
 

@@ -4,7 +4,7 @@
  * 旧版本缓存没有 angles 字段——视为过期，重新生成一次以补齐角度。
  */
 
-export type DigestSource = 'article' | 'title';
+export type DigestSource = 'article' | 'hotspot' | 'title';
 
 export interface DigestCacheEntry {
   digest: string;
@@ -49,7 +49,7 @@ export function readCachedDigest(url: string): DigestCacheEntry | null {
     typeof entry.digest !== 'string' ||
     !Array.isArray(entry.angles) ||
     !entry.angles.every((angle) => typeof angle === 'string') ||
-    (entry.source !== 'article' && entry.source !== 'title') ||
+    (entry.source !== 'article' && entry.source !== 'hotspot' && entry.source !== 'title') ||
     typeof entry.model !== 'string' ||
     typeof entry.generatedAtIso !== 'string' ||
     (entry.originUrl !== undefined &&

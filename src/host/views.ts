@@ -86,6 +86,13 @@ export function buildConfigView(
   settings: SettingsRecord,
   credentials: Readonly<Record<string, CredentialDescriptorInput>>,
 ): ConfigView {
+  // 上一版单家博查配置（searchApi）沿用为链里的第一项，避免升级后设置页突然空链。
+  const searchProviders =
+    settings.searchProviders.length > 0
+      ? settings.searchProviders
+      : settings.searchApi
+        ? [{ providerId: 'bocha' as const, credentialRef: settings.searchApi.credentialRef }]
+        : [];
   const descriptors: Record<string, CredentialsDescriptor> = {};
   for (const [ref, descriptor] of Object.entries(credentials)) {
     descriptors[ref] = { configured: descriptor.configured, writable: descriptor.writable };
@@ -103,6 +110,9 @@ export function buildConfigView(
       runHistoryLimit: settings.runHistoryLimit,
       hotspotSources: settings.hotspotSources,
       hotspotAggregatorUrl: settings.hotspotAggregatorUrl,
+      ...(settings.searchApi ? { searchApi: settings.searchApi } : {}),
+      searchProviders,
+      ...(settings.searchFreshness ? { searchFreshness: settings.searchFreshness } : {}),
     },
     credentials: descriptors,
     imageProviders: settings.imageProviders.map((entry) => ({
